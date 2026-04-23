@@ -134,10 +134,7 @@ func SaveSettings() error {
 	if err := os.MkdirAll("./conf", 0700); err != nil {
 		return fmt.Errorf("mkdir conf: %w", err)
 	}
-	if err := os.WriteFile(settingsFile, b, 0600); err != nil {
-		return fmt.Errorf("write settings: %w", err)
-	}
-	return nil
+	return atomicWriteFile(settingsFile, b, 0600)
 }
 
 // LoadSettings reads persisted cookies and user-agent from disk and applies
@@ -336,10 +333,7 @@ func (m *Manager) SaveConfig() error {
 	if err := os.MkdirAll("./conf", 0700); err != nil {
 		return fmt.Errorf("mkdir all conf: %w", err)
 	}
-	if err := os.WriteFile(channelsFile, b, 0600); err != nil {
-		return fmt.Errorf("write file: %w", err)
-	}
-	return nil
+	return atomicWriteFile(channelsFile, b, 0600)
 }
 
 func saveChannelConfig(config []*entity.ChannelConfig) error {
@@ -350,8 +344,19 @@ func saveChannelConfig(config []*entity.ChannelConfig) error {
 	if err := os.MkdirAll("./conf", 0700); err != nil {
 		return fmt.Errorf("mkdir all conf: %w", err)
 	}
-	if err := os.WriteFile(channelsFile, b, 0600); err != nil {
-		return fmt.Errorf("write file: %w", err)
+	return atomicWriteFile(channelsFile, b, 0600)
+}
+
+// atomicWriteFile writes data to a temp file and renames it into place,
+// preventing partial/corrupt files if the process crashes mid-write.
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	tmpFile := path + ".tmp"
+	if err := os.WriteFile(tmpFile, data, perm); err != nil {
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := os.Rename(tmpFile, path); err != nil {
+		os.Remove(tmpFile)
+		return fmt.Errorf("rename temp file: %w", err)
 	}
 	return nil
 }

@@ -72,6 +72,10 @@ func (ch *Channel) cleanupLocked() error {
 	}
 	filename := ch.File.Name()
 
+	// Capture values before reset so finalization has accurate data
+	capturedDuration := ch.Duration
+	capturedFilesize := ch.Filesize
+
 	defer func() {
 		ch.Filesize = 0
 		ch.Duration = 0
@@ -99,7 +103,7 @@ func (ch *Channel) cleanupLocked() error {
 	} else if fileInfo != nil {
 		ch.startFinalization()
 		// Process in background - don't block recording
-		go ch.finalizeRecordingAsync(filename)
+		go ch.finalizeRecordingAsync(filename, capturedDuration, capturedFilesize)
 	}
 
 	return nil
@@ -253,7 +257,7 @@ func (ch *Channel) ShouldSwitchFile() bool {
 }
 
 func (ch *Channel) shouldSwitchFileLocked() bool {
-	maxFilesizeBytes := ch.Config.MaxFilesize * 1024 * 1024
+	maxFilesizeBytes := int64(ch.Config.MaxFilesize) * 1024 * 1024
 	maxDurationSeconds := ch.Config.MaxDuration * 60
 
 	return (ch.Duration >= float64(maxDurationSeconds) && ch.Config.MaxDuration > 0) ||
@@ -286,7 +290,7 @@ func isMP4InitSegment(b []byte) bool {
 	return hasFtyp && hasMoov
 }
 
-func (ch *Channel) finalizeRecording(filename string) {
+func (ch *Channel) finalizeRecording(filename string, recordedDuration float64, recordedFilesize int64) {
 	defer ch.finishFinalization()
 
 	finalPath := filename
@@ -327,7 +331,7 @@ func (ch *Channel) finalizeRecording(filename string) {
 			
 			// Only create database folders and log after successful upload
 			// Store in GitHub Actions database (JSON files) - creates folders only on success
-			if err := ch.logUploadToDatabase(finalPath, downloadLink); err != nil {
+			if err := ch.logUploadToDatabase(finalPath, downloadLink, recordedDuration, recordedFilesize); err != nil {
 				ch.Error("failed to log upload to GitHub Actions database: %s", err.Error())
 			} else {
 				ch.Info("upload logged to GitHub Actions database")
@@ -370,7 +374,7 @@ func (ch *Channel) finalizeRecording(filename string) {
 
 // finalizeRecordingAsync processes a completed recording file in the background
 // This allows recording to continue while conversion and upload happen in parallel
-func (ch *Channel) finalizeRecordingAsync(filename string) {
+func (ch *Channel) finalizeRecordingAsync(filename string, recordedDuration float64, recordedFilesize int64) {
 	defer ch.finishFinalization()
 	
 	ch.Info("starting background processing for `%s`", filepath.Base(filename))
@@ -417,7 +421,7 @@ func (ch *Channel) finalizeRecordingAsync(filename string) {
 			
 			// Only create database folders and log after successful upload
 			// Store in GitHub Actions database (JSON files) - creates folders only on success
-			if err := ch.logUploadToDatabase(finalPath, downloadLink); err != nil {
+			if err := ch.logUploadToDatabase(finalPath, downloadLink, recordedDuration, recordedFilesize); err != nil {
 				ch.Error("failed to log upload to GitHub Actions database: %s", err.Error())
 			} else {
 				ch.Info("upload logged to GitHub Actions database")
@@ -605,7 +609,7 @@ func qualityArgsForEncoder(encoder string, quality int) []string {
 
 // logUploadToDatabase stores upload record in local JSON database (GitHub Actions compatible)
 // This function only creates folders and files after a successful GoFile upload
-func (ch *Channel) logUploadToDatabase(filePath, gofileLink string) error {
+func (ch *Channel) logUploadToDatabase(filePath, gofileLink string, recordedDuration float64, recordedFilesize int64) error {
 	// Validate inputs before creating any folders
 	if gofileLink == "" {
 		return fmt.Errorf("gofile link is empty, cannot log to database")
@@ -617,10 +621,8 @@ func (ch *Channel) logUploadToDatabase(filePath, gofileLink string) error {
 	if err == nil {
 		fileSize = fileInfo.Size()
 	} else {
-		// File might have been deleted already, try to get size from channel state
-		ch.fileMu.RLock()
-		fileSize = int64(ch.Filesize)
-		ch.fileMu.RUnlock()
+		// File might have been deleted already, use captured value
+		fileSize = recordedFilesize
 	}
 	
 	// Create database directory structure ONLY after validating upload success
@@ -645,7 +647,7 @@ func (ch *Channel) logUploadToDatabase(filePath, gofileLink string) error {
 		"uploaded_at":    time.Now().UTC().Format(time.RFC3339),
 		"filesize_bytes": fileSize,
 		"status":         "uploaded",
-		"duration_seconds": ch.Duration,
+		"duration_seconds": recordedDuration,
 	}
 	
 	// Read existing data or create new structure

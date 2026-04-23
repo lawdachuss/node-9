@@ -9,11 +9,12 @@ import (
 
 // ProgressReader wraps an io.Reader and reports progress
 type ProgressReader struct {
-	reader      io.Reader
-	total       int64
-	current     int64
-	lastPrint   time.Time
-	onProgress  func(current, total int64, speed float64)
+	reader          io.Reader
+	total           int64
+	current         int64
+	lastPrint       time.Time
+	bytesSincePrint int64
+	onProgress      func(current, total int64, speed float64)
 }
 
 // NewProgressReader creates a new progress reader
@@ -30,17 +31,19 @@ func (pr *ProgressReader) Read(p []byte) (int, error) {
 	n, err := pr.reader.Read(p)
 	if n > 0 {
 		atomic.AddInt64(&pr.current, int64(n))
+		pr.bytesSincePrint += int64(n)
 		
 		// Report progress every 500ms
-		if time.Since(pr.lastPrint) > 500*time.Millisecond {
+		elapsed := time.Since(pr.lastPrint)
+		if elapsed > 500*time.Millisecond {
 			current := atomic.LoadInt64(&pr.current)
-			elapsed := time.Since(pr.lastPrint).Seconds()
-			speed := float64(n) / elapsed / 1024 / 1024 // MB/s
+			speed := float64(pr.bytesSincePrint) / elapsed.Seconds() / 1024 / 1024 // MB/s
 			
 			if pr.onProgress != nil {
 				pr.onProgress(current, pr.total, speed)
 			}
 			pr.lastPrint = time.Now()
+			pr.bytesSincePrint = 0
 		}
 	}
 	return n, err

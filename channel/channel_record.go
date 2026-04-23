@@ -156,11 +156,6 @@ func (ch *Channel) Monitor(runID uint64) {
 		}
 	}
 
-	// Always cleanup when monitor exits, regardless of error
-	if err := ch.Cleanup(); err != nil {
-		ch.Error("cleanup on monitor exit: %s", err.Error())
-	}
-
 	// Log error if it's not a context cancellation
 	if err != nil && !errors.Is(err, context.Canceled) {
 		ch.Error("record stream: %s", err.Error())
@@ -334,7 +329,7 @@ func (ch *Channel) handleSegmentForMonitor(runID uint64, b []byte, duration floa
 			ch.fileMu.Unlock()
 			return fmt.Errorf("write mp4 init segment: %w", err)
 		}
-		ch.Filesize += n
+		ch.Filesize += int64(n)
 		
 		// CRITICAL: Sync init segment immediately to ensure file is playable
 		// even if process is killed (e.g., workflow cancellation)
@@ -349,7 +344,7 @@ func (ch *Channel) handleSegmentForMonitor(runID uint64, b []byte, duration floa
 		return fmt.Errorf("write file: %w", err)
 	}
 
-	ch.Filesize += n
+	ch.Filesize += int64(n)
 	ch.Duration += duration
 	ch.segmentCount++
 	

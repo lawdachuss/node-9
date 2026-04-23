@@ -607,7 +607,7 @@ func normalizeM3U8(resp string) string {
 		"#EXT-X-MOUFLON:",
 	}
 	lines := strings.Split(resp, "\n")
-	out := lines[:0]
+	out := make([]string, 0, len(lines))
 	for _, line := range lines {
 		trimmed := strings.TrimRight(line, "\r")
 		skip := false

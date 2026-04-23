@@ -107,15 +107,21 @@ func PostChaturbateAPI(ctx context.Context, username, csrfToken string) (string,
 	
 	bodyStr := string(body)
 	
-	// Check for Cloudflare block
-	if resp.StatusCode == 403 || 
-	   strings.Contains(bodyStr, "<title>Just a moment...</title>") || 
-	   strings.Contains(bodyStr, "Checking your browser") ||
-	   strings.Contains(bodyStr, "cloudflare") {
+	// Check for Cloudflare block - only if body contains CF-specific markers
+	isCFBlock := strings.Contains(bodyStr, "<title>Just a moment...</title>") ||
+		strings.Contains(bodyStr, "Checking your browser") ||
+		strings.Contains(bodyStr, "cloudflare")
+	
+	if isCFBlock {
 		if server.Config.Debug {
 			fmt.Printf("[DEBUG] Cloudflare block detected on POST API (status: %d)\n", resp.StatusCode)
 		}
 		return "", ErrCloudflareBlocked
+	}
+	
+	// A plain 403 without CF markers is a private/forbidden room, not a CF block
+	if resp.StatusCode == 403 {
+		return "", fmt.Errorf("forbidden: %w", ErrPrivateStream)
 	}
 	
 	return bodyStr, nil

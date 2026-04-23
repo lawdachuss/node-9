@@ -24,7 +24,7 @@ type Channel struct {
 	IsOnline            bool
 	StreamedAt          int64
 	Duration            float64 // Seconds
-	Filesize            int     // Bytes
+	Filesize            int64   // Bytes
 	TotalDiskUsageBytes int64   // Total bytes across all recordings for this channel
 	Sequence            int
 	FileExt             string // ".ts" or ".mp4", set per-stream
@@ -169,12 +169,12 @@ func (ch *Channel) ExportInfo() *entity.ChannelInfo {
 		IsPaused:         ch.Config.IsPaused,
 		Username:         ch.Config.Username,
 		MaxDuration:      internal.FormatDuration(float64(ch.Config.MaxDuration * 60)), // MaxDuration from config is in minutes
-		MaxFilesize:      internal.FormatFilesize(ch.Config.MaxFilesize * 1024 * 1024), // MaxFilesize from config is in MB
+		MaxFilesize:      internal.FormatFilesize(int64(ch.Config.MaxFilesize) * 1024 * 1024), // MaxFilesize from config is in MB
 		StreamedAt:       streamedAt,
 		CreatedAt:        ch.Config.CreatedAt,
 		Duration:         internal.FormatDuration(duration),
 		Filesize:         internal.FormatFilesize(filesize),
-		TotalDiskUsage:   internal.FormatFilesize(int(totalDiskUsageBytes)),
+		TotalDiskUsage:   internal.FormatFilesize(totalDiskUsageBytes),
 		Filename:         filename,
 		Logs:             logs,
 		GlobalConfig:     server.Config,

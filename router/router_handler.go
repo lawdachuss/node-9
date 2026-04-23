@@ -50,6 +50,10 @@ func CreateChannel(c *gin.Context) {
 
 	var errs []string
 	for _, username := range strings.Split(req.Username, ",") {
+		username = strings.TrimSpace(username)
+		if username == "" {
+			continue
+		}
 		if err := server.Manager.CreateChannel(&entity.ChannelConfig{
 			IsPaused:    false,
 			Username:    username,
