@@ -125,6 +125,7 @@ services:
   recorder:
     build: .
     container_name: goondvr
+    command: ["--debug"]
     environment:
       - FLARESOLVERR_URL=http://flaresolverr-1:8191/v1
     ports:
