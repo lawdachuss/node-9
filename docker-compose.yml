@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   # Byparr - Scalable Cloudflare bypass service
-  # FREE TIER c7i-flex.large (4GB RAM): 4 instances (handles ~40 channels)
+  # FREE TIER c7i-flex.large (4GB RAM): 2 instances optimized for Cloudflare 2026
   byparr:
     image: ghcr.io/thephaseless/byparr:latest
     environment:
@@ -12,6 +12,7 @@ services:
       - PROXY_USERNAME=${PROXY_USERNAME:-}
       - PROXY_PASSWORD=${PROXY_PASSWORD:-}
       - TIMEOUT=180  # 3 minutes timeout for Cloudflare challenges
+      - LOG_LEVEL=INFO
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8191/"]
@@ -22,14 +23,13 @@ services:
     networks:
       - recorder-network
     deploy:
-      replicas: 2  # FREE TIER: 2 instances for better performance (handles ~20 channels)
+      replicas: 2  # FREE TIER: 2 instances with more resources each
       resources:
         limits:
-          cpus: '1.5'
-          memory: 1G
+          memory: 1.5G  # Increased from 1G - Cloudflare 2026 needs more memory
         reservations:
-          cpus: '0.25'
-          memory: 300M
+          cpus: '0.5'
+          memory: 500M
 
   # Nginx load balancer for Byparr instances
   byparr-lb:
@@ -76,8 +76,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.8'
-          memory: 500M
+          memory: 600M  # Increased slightly for better stability
         reservations:
           cpus: '0.2'
           memory: 200M

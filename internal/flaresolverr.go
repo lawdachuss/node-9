@@ -155,18 +155,22 @@ func GetFreshCookies(ctx context.Context, url string) (string, string, error) {
 	client = &http.Client{Timeout: 360 * time.Second} // 6 minutes for Cloudflare challenges + queue wait
 	resp, err = client.Do(req)
 	if err != nil {
-		return "", "", fmt.Errorf("do request: %w", err)
+		return "", "", fmt.Errorf("byparr request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", "", fmt.Errorf("read body: %w", err)
+		return "", "", fmt.Errorf("read byparr response: %w", err)
+	}
+
+	if server.Config.Debug {
+		fmt.Printf("[DEBUG] Byparr response status: %d, body length: %d bytes\n", resp.StatusCode, len(body))
 	}
 
 	var fsResp FlareSolverrResponse
 	if err := json.Unmarshal(body, &fsResp); err != nil {
-		return "", "", fmt.Errorf("unmarshal response: %w", err)
+		return "", "", fmt.Errorf("parse byparr response: %w (body: %s)", err, string(body[:min(200, len(body))]))
 	}
 
 	// Clean up the session
@@ -184,13 +188,20 @@ func GetFreshCookies(ctx context.Context, url string) (string, string, error) {
 	if fsResp.Status != "ok" {
 		// Check for specific error patterns
 		errMsg := fsResp.Message
+		if errMsg == "" {
+			errMsg = "unknown error (empty response)"
+		}
+		
 		if strings.Contains(errMsg, "%d format") || strings.Contains(errMsg, "NoneType") {
-			return "", "", fmt.Errorf("flaresolverr challenge failed (likely needs residential proxy): %s", errMsg)
+			return "", "", fmt.Errorf("byparr challenge failed (likely needs residential proxy): %s", errMsg)
 		}
-		if strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "timed out") {
-			return "", "", fmt.Errorf("flaresolverr timeout (cloudflare challenge too complex): %s", errMsg)
+		if strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "timed out") || strings.Contains(errMsg, "Timed out") {
+			return "", "", fmt.Errorf("byparr timeout after 180s (cloudflare 2026 is very aggressive - consider residential proxies): %s", errMsg)
 		}
-		return "", "", fmt.Errorf("flaresolverr error: %s", errMsg)
+		if strings.Contains(errMsg, "unknown error") {
+			return "", "", fmt.Errorf("byparr failed to solve challenge (may need more memory or residential proxy)")
+		}
+		return "", "", fmt.Errorf("byparr error: %s", errMsg)
 	}
 
 	// Extract cookies
