@@ -2,7 +2,7 @@
 # This script uploads your local configuration files to the EC2 instance
 
 param(
-    [string]$EC2Host = "54.210.37.19",
+    [string]$EC2Host = "32.193.245.111",
     [string]$KeyPath = "aws-secrets/aws-key.pem",
     [string]$AppDir = "/home/ubuntu/goondvr"
 )
