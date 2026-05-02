@@ -1,0 +1,116 @@
+name: Continuous Recording (24/7)
+
+on:
+  # Run every 5 hours to ensure 24/7 coverage
+  schedule:
+    - cron: '0 0 * * *'    # 00:00 UTC
+    - cron: '0 5 * * *'    # 05:00 UTC
+    - cron: '0 10 * * *'   # 10:00 UTC
+    - cron: '0 15 * * *'   # 15:00 UTC
+    - cron: '0 20 * * *'   # 20:00 UTC
+  
+  # Allow manual trigger
+  workflow_dispatch:
+  
+  # Auto-start on push (optional)
+  push:
+    branches: [ main, master ]
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300  # 5 hours (300 minutes)
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      
+      - name: Create required directories
+        run: |
+          mkdir -p videos/completed
+          mkdir -p database
+          mkdir -p conf
+      
+      - name: Create settings.json from secrets
+        run: |
+          cat > settings.json << 'EOF'
+          ${{ secrets.SETTINGS_JSON }}
+          EOF
+      
+      - name: Create channels.json from secrets (if exists)
+        run: |
+          if [ -n "${{ secrets.CHANNELS_JSON }}" ]; then
+            cat > conf/channels.json << 'EOF'
+          ${{ secrets.CHANNELS_JSON }}
+          EOF
+          fi
+      
+      - name: Build application
+        run: go build -o goondvr .
+      
+      - name: Run recorder (5 hours)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_API_KEY: ${{ secrets.SUPABASE_API_KEY }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          TURBOVIPLAY_API_KEY: ${{ secrets.TURBOVIPLAY_API_KEY }}
+          VOESX_API_KEY: ${{ secrets.VOESX_API_KEY }}
+          STREAMTAPE_LOGIN: ${{ secrets.STREAMTAPE_LOGIN }}
+          STREAMTAPE_API_KEY: ${{ secrets.STREAMTAPE_API_KEY }}
+        run: |
+          echo "🚀 Starting recorder at $(date)"
+          echo "⏰ Will run for 5 hours"
+          
+          # Run for 5 hours (will be killed by timeout)
+          timeout 5h ./goondvr --port 8080 --enable-gofile-upload || {
+            EXIT_CODE=$?
+            if [ $EXIT_CODE -eq 124 ]; then
+              echo "✅ Timeout reached (5 hours) - Normal termination"
+            else
+              echo "⚠️ Exited with code $EXIT_CODE"
+            fi
+          }
+          
+          echo "🏁 Recording session ended at $(date)"
+      
+      - name: Upload recordings (if any)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recordings-${{ github.run_number }}
+          path: |
+            videos/**/*.mp4
+            videos/**/*.ts
+            database/**/*.json
+          retention-days: 1
+          if-no-files-found: ignore
+      
+      - name: Show statistics
+        if: always()
+        run: |
+          echo "📊 Session Statistics:"
+          echo "Duration: 5 hours"
+          echo "Disk usage:"
+          df -h
+          echo ""
+          echo "Recordings:"
+          find videos -type f -name "*.mp4" -o -name "*.ts" 2>/dev/null || echo "No recordings found"
+          echo ""
+          echo "Database entries:"
+          find database -type f -name "*.json" 2>/dev/null || echo "No database entries"
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "✅ Workflow completed. Next run will start automatically in ~5 hours."
+          echo "🔄 24/7 continuous operation maintained via scheduled runs."
