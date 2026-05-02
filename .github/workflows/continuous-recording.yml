@@ -54,14 +54,39 @@ jobs:
       - name: Create channels.json from secrets (if exists)
         env:
           CHANNELS_CONTENT: ${{ secrets.CHANNELS_JSON }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_API_KEY: ${{ secrets.SUPABASE_API_KEY }}
         run: |
-          echo "[INFO] Creating channels.json"
-          if [ -z "$CHANNELS_CONTENT" ]; then
-            echo "[WARN] CHANNELS_JSON secret not found - creating empty file"
-            echo "[]" > conf/channels.json
-          else
-            echo "$CHANNELS_CONTENT" > conf/channels.json
-            echo "[SUCCESS] channels.json created"
+          echo "[INFO] Setting up channels"
+          
+          # First, try to sync from Supabase
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_API_KEY" ]; then
+            echo "[INFO] Attempting to sync channels from Supabase"
+            chmod +x scripts/sync-channels-from-supabase.sh
+            ./scripts/sync-channels-from-supabase.sh || echo "[WARN] Supabase sync failed, will use secret"
+          fi
+          
+          # If channels.json doesn't exist or is empty, use secret
+          if [ ! -f "conf/channels.json" ] || [ ! -s "conf/channels.json" ]; then
+            echo "[INFO] Creating channels.json from secret"
+            if [ -z "$CHANNELS_CONTENT" ]; then
+              echo "[WARN] CHANNELS_JSON secret not found - creating empty file"
+              echo "[]" > conf/channels.json
+            else
+              echo "$CHANNELS_CONTENT" > conf/channels.json
+              echo "[SUCCESS] channels.json created from secret"
+              
+              # Sync to Supabase for future runs
+              if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_API_KEY" ]; then
+                echo "[INFO] Syncing channels to Supabase"
+                chmod +x scripts/sync-channels-to-supabase.sh
+                ./scripts/sync-channels-to-supabase.sh || echo "[WARN] Failed to sync to Supabase"
+              fi
+            fi
+          fi
+          
+          # Show channel info
+          if [ -f "conf/channels.json" ]; then
             TOTAL=$(jq '. | length' conf/channels.json)
             ACTIVE=$(jq '[.[] | select(.is_paused == false)] | length' conf/channels.json)
             echo "[INFO] Total channels: $TOTAL, Active: $ACTIVE"
@@ -391,8 +416,18 @@ jobs:
           done
           
           echo ""
-          echo "✅ 5-hour session completed at $(date)"
-          echo "🛑 Stopping services..."
+          echo "[INFO] 5-hour session completed at $(date)"
+          echo "[INFO] Stopping services..."
+          
+          # Sync channels back to Supabase before stopping
+          if [ -n "${{ secrets.SUPABASE_URL }}" ] && [ -n "${{ secrets.SUPABASE_API_KEY }}" ]; then
+            echo "[INFO] Syncing channels to Supabase before shutdown"
+            docker exec goondvr cat /usr/src/app/conf/channels.json > conf/channels.json 2>/dev/null || true
+            export SUPABASE_URL="${{ secrets.SUPABASE_URL }}"
+            export SUPABASE_API_KEY="${{ secrets.SUPABASE_API_KEY }}"
+            chmod +x scripts/sync-channels-to-supabase.sh
+            ./scripts/sync-channels-to-supabase.sh || echo "[WARN] Failed to sync channels"
+          fi
           
           # Stop Docker container
           docker stop goondvr || true
