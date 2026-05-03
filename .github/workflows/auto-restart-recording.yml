@@ -1,0 +1,36 @@
+name: Auto-Restart Recording
+
+on:
+  workflow_run:
+    workflows: ["Continuous Recording (24/7) with Web UI"]
+    types:
+      - completed
+
+jobs:
+  restart:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure' }}
+    
+    steps:
+      - name: Wait 30 seconds before restarting
+        run: |
+          echo "⏳ Previous recording session completed"
+          echo "⏳ Waiting 30 seconds before starting next session..."
+          sleep 30
+      
+      - name: Trigger next recording session
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            console.log('🚀 Triggering next recording session...');
+            
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'continuous-recording.yml',
+              ref: 'main'
+            });
+            
+            console.log('✅ Next recording session triggered successfully!');
+            console.log('📊 This ensures continuous 24/7 recording with 5-hour sessions');
