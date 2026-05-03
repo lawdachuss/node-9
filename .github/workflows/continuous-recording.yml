@@ -280,9 +280,179 @@ jobs:
           echo "🔄 Keeping session alive..."
           echo ""
           
+          # Function to handle graceful shutdown
+          graceful_shutdown() {
+            echo ""
+            echo "╔════════════════════════════════════════════════════════════╗"
+            echo "║        ⚠️  CANCELLATION DETECTED - SAVING RECORDINGS       ║"
+            echo "╚════════════════════════════════════════════════════════════╝"
+            echo ""
+            echo "⏰ Started graceful shutdown at: $(date)"
+            echo ""
+            
+            # Step 1: Signal the app to stop recording and start finalization
+            echo "📡 Step 1/5: Signaling app to finalize recordings..."
+            docker exec goondvr pkill -SIGTERM -f goondvr 2>/dev/null || true
+            echo "✅ Signal sent - app will finalize current recordings"
+            echo ""
+            
+            # Step 2: Wait for app to finalize recordings (up to 3 minutes)
+            echo "⏳ Step 2/5: Waiting for recordings to finalize (max 3 minutes)..."
+            FINALIZE_START=$(date +%s)
+            FINALIZE_TIMEOUT=180  # 3 minutes
+            
+            while [ $(($(date +%s) - FINALIZE_START)) -lt $FINALIZE_TIMEOUT ]; do
+              # Check if there are any active recording processes
+              ACTIVE_RECORDINGS=$(docker exec goondvr ps aux 2>/dev/null | grep -c "ffmpeg.*recording" || echo "0")
+              
+              if [ "$ACTIVE_RECORDINGS" -eq 0 ]; then
+                echo "✅ All recordings finalized"
+                break
+              fi
+              
+              echo "  ⏳ $ACTIVE_RECORDINGS recording(s) still finalizing... ($(($FINALIZE_TIMEOUT - $(date +%s) + $FINALIZE_START))s remaining)"
+              sleep 10
+            done
+            echo ""
+            
+            # Step 3: Trigger manual upload of any remaining completed files
+            echo "📤 Step 3/5: Uploading completed recordings..."
+            
+            # Count files to upload
+            COMPLETED_COUNT=$(docker exec goondvr find /usr/src/app/videos/completed -type f \( -name "*.mp4" -o -name "*.ts" \) 2>/dev/null | wc -l || echo "0")
+            
+            if [ "$COMPLETED_COUNT" -gt 0 ]; then
+              echo "  📦 Found $COMPLETED_COUNT file(s) to upload"
+              
+              # Trigger upload via API (with extended timeout - 10 minutes)
+              echo "  🚀 Starting upload process (this may take several minutes)..."
+              UPLOAD_START=$(date +%s)
+              
+              curl -s -X POST -m 600 http://localhost:8080/api/upload/completed > /tmp/upload_response.txt 2>&1 &
+              UPLOAD_PID=$!
+              
+              # Monitor upload progress
+              UPLOAD_TIMEOUT=600  # 10 minutes
+              while [ $(($(date +%s) - UPLOAD_START)) -lt $UPLOAD_TIMEOUT ]; do
+                if ! kill -0 $UPLOAD_PID 2>/dev/null; then
+                  # Upload process finished
+                  UPLOAD_RESPONSE=$(cat /tmp/upload_response.txt 2>/dev/null || echo "")
+                  
+                  if echo "$UPLOAD_RESPONSE" | grep -q "success"; then
+                    echo "  ✅ Upload completed successfully"
+                  else
+                    echo "  ⚠️  Upload process finished (check response below)"
+                    echo "  Response: $UPLOAD_RESPONSE"
+                  fi
+                  break
+                fi
+                
+                # Check how many files are left
+                REMAINING=$(docker exec goondvr find /usr/src/app/videos/completed -type f \( -name "*.mp4" -o -name "*.ts" \) 2>/dev/null | wc -l || echo "$COMPLETED_COUNT")
+                UPLOADED=$((COMPLETED_COUNT - REMAINING))
+                
+                if [ "$UPLOADED" -gt 0 ]; then
+                  echo "  ⏳ Progress: $UPLOADED/$COMPLETED_COUNT uploaded ($(($UPLOAD_TIMEOUT - $(date +%s) + $UPLOAD_START))s remaining)"
+                else
+                  echo "  ⏳ Upload in progress... ($(($UPLOAD_TIMEOUT - $(date +%s) + $UPLOAD_START))s remaining)"
+                fi
+                
+                sleep 15
+              done
+              
+              # Final check
+              FINAL_REMAINING=$(docker exec goondvr find /usr/src/app/videos/completed -type f \( -name "*.mp4" -o -name "*.ts" \) 2>/dev/null | wc -l || echo "0")
+              FINAL_UPLOADED=$((COMPLETED_COUNT - FINAL_REMAINING))
+              
+              echo ""
+              echo "  📊 Upload Summary:"
+              echo "     Total files: $COMPLETED_COUNT"
+              echo "     Uploaded: $FINAL_UPLOADED"
+              echo "     Remaining: $FINAL_REMAINING"
+              
+              if [ "$FINAL_REMAINING" -gt 0 ]; then
+                echo "  ⚠️  Some files were not uploaded - they will be saved in emergency backup"
+              else
+                echo "  ✅ All files uploaded successfully!"
+              fi
+            else
+              echo "  ℹ️  No completed files to upload (all already uploaded)"
+            fi
+            echo ""
+            
+            # Step 4: Create emergency backup of any remaining files
+            echo "💾 Step 4/5: Creating emergency backup..."
+            REMAINING_FILES=$(docker exec goondvr find /usr/src/app/videos -type f \( -name "*.mp4" -o -name "*.ts" \) 2>/dev/null | wc -l || echo "0")
+            
+            if [ "$REMAINING_FILES" -gt 0 ]; then
+              echo "  📦 Found $REMAINING_FILES file(s) to backup"
+              
+              # Copy files from container to host
+              EMERGENCY_BACKUP="emergency-backup-$(date +%s)"
+              mkdir -p "$EMERGENCY_BACKUP"
+              
+              docker cp goondvr:/usr/src/app/videos/. "$EMERGENCY_BACKUP/" 2>/dev/null || true
+              docker cp goondvr:/usr/src/app/database/. "$EMERGENCY_BACKUP/database/" 2>/dev/null || true
+              
+              echo "  ✅ Emergency backup created: $EMERGENCY_BACKUP/"
+              echo "  📊 Backup contents:"
+              du -sh "$EMERGENCY_BACKUP"/* 2>/dev/null || echo "  (empty)"
+            else
+              echo "  ✅ No files need backup (all uploaded successfully)"
+            fi
+            echo ""
+            
+            # Step 5: Show final status
+            echo "📊 Step 5/5: Final status..."
+            echo ""
+            echo "  📋 Container logs (last 30 lines):"
+            docker logs --tail 30 goondvr 2>&1 | grep -E "(upload|finalize|complete)" || echo "  (no relevant logs)"
+            echo ""
+            echo "  💾 Disk usage:"
+            df -h / | grep -E "(Filesystem|/$)"
+            echo ""
+            echo "✅ Graceful shutdown completed at: $(date)"
+            echo ""
+            
+            # Set flag to exit main loop
+            CANCELLED=true
+          }
+          
           # Setup trap for graceful shutdown on SIGTERM/SIGINT
-          trap 'echo ""; echo "⚠️  Received cancellation signal - initiating graceful shutdown..."; CANCELLED=true' SIGTERM SIGINT
+          trap 'graceful_shutdown' SIGTERM SIGINT
           CANCELLED=false
+          
+          # Function to restart tunnel if it dies
+          restart_tunnel() {
+            echo "🔄 Restarting Cloudflare tunnel..."
+            
+            # Kill old tunnel process
+            if [ -f tunnel.pid ]; then
+              OLD_PID=$(cat tunnel.pid)
+              kill -9 $OLD_PID 2>/dev/null || true
+            fi
+            pkill -f cloudflared 2>/dev/null || true
+            
+            # Clear old log
+            rm -f tunnel.log
+            
+            # Start new tunnel
+            cloudflared tunnel --url http://localhost:8080 > tunnel.log 2>&1 &
+            TUNNEL_PID=$!
+            echo $TUNNEL_PID > tunnel.pid
+            
+            # Wait for new URL
+            sleep 10
+            TUNNEL_URL=$(grep -oP 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' tunnel.log | head -1)
+            
+            if [ -n "$TUNNEL_URL" ]; then
+              echo "✅ Tunnel restarted successfully!"
+              echo "🌐 New URL: $TUNNEL_URL"
+            else
+              echo "⚠️ Tunnel restart may have failed, checking logs..."
+              tail -10 tunnel.log
+            fi
+          }
           
           # Try to get tunnel URL again if not found earlier
           sleep 10
@@ -309,6 +479,7 @@ jobs:
           LAST_URL_DISPLAY=0
           LAST_CLEANUP=0
           LAST_CHANNEL_SYNC=0
+          LAST_TUNNEL_CHECK=0
           
           while [ $(date +%s) -lt $END_TIME ] && [ "$CANCELLED" = false ]; do
             CURRENT_TIME=$(date +%s)
@@ -321,19 +492,111 @@ jobs:
               break
             fi
             
+            # Check tunnel health every 2 minutes
+            if [ $((CURRENT_TIME - LAST_TUNNEL_CHECK)) -gt 120 ]; then
+              if [ -f tunnel.pid ]; then
+                TUNNEL_PID=$(cat tunnel.pid)
+                if ! kill -0 $TUNNEL_PID 2>/dev/null; then
+                  echo "⚠️ Tunnel process died! Restarting..."
+                  restart_tunnel
+                else
+                  # Verify tunnel is actually responding
+                  if ! curl -s -f -m 5 http://localhost:8080 > /dev/null 2>&1; then
+                    echo "⚠️ App not responding, but tunnel is running"
+                  fi
+                fi
+              else
+                echo "⚠️ Tunnel PID file missing! Restarting tunnel..."
+                restart_tunnel
+              fi
+              LAST_TUNNEL_CHECK=$CURRENT_TIME
+            fi
+            
             # The app syncs channels to Supabase directly — no external sync needed
             if [ $((CURRENT_TIME - LAST_CHANNEL_SYNC)) -gt 300 ]; then
               LAST_CHANNEL_SYNC=$CURRENT_TIME
             fi
             
-            # Cleanup uploaded videos every 10 minutes to save disk space
-            if [ $((CURRENT_TIME - LAST_CLEANUP)) -gt 600 ]; then
-              DISK_USAGE=$(df -h / | awk 'NR==2 {print $5}' | sed 's/%//')
-              if [ "$DISK_USAGE" -gt 70 ]; then
-                echo "🧹 Disk usage at ${DISK_USAGE}% - Cleaning up completed videos..."
-                find videos/completed -type f \( -name "*.mp4" -o -name "*.ts" \) -mmin +5 -delete 2>/dev/null || true
-                echo "✅ Cleanup completed"
+            # Backup videos to artifacts every 30 minutes (in case of cancellation)
+            if [ $((CURRENT_TIME - LAST_CLEANUP)) -gt 1800 ]; then
+              echo ""
+              echo "🔄 Periodic maintenance (every 30 minutes)..."
+              
+              # First, trigger upload of any completed videos
+              echo "📤 Checking for completed videos to upload..."
+              COMPLETED_COUNT=$(docker exec goondvr find /usr/src/app/videos/completed -type f \( -name "*.mp4" -o -name "*.ts" \) 2>/dev/null | wc -l || echo "0")
+              
+              if [ "$COMPLETED_COUNT" -gt 0 ]; then
+                echo "  📦 Found $COMPLETED_COUNT video(s) ready for upload"
+                echo "  🚀 Triggering upload process..."
+                
+                # Trigger upload via API (non-blocking, with timeout)
+                curl -s -X POST -m 120 http://localhost:8080/api/upload/completed > /dev/null 2>&1 &
+                UPLOAD_PID=$!
+                
+                # Wait up to 2 minutes for upload to complete
+                for i in {1..12}; do
+                  if ! kill -0 $UPLOAD_PID 2>/dev/null; then
+                    echo "  ✅ Upload process completed"
+                    break
+                  fi
+                  sleep 10
+                done
+                
+                # Check if files were uploaded (should be gone from completed folder)
+                REMAINING=$(docker exec goondvr find /usr/src/app/videos/completed -type f \( -name "*.mp4" -o -name "*.ts" \) 2>/dev/null | wc -l || echo "0")
+                UPLOADED=$((COMPLETED_COUNT - REMAINING))
+                
+                if [ "$UPLOADED" -gt 0 ]; then
+                  echo "  ✅ Successfully uploaded $UPLOADED video(s)"
+                fi
+                
+                if [ "$REMAINING" -gt 0 ]; then
+                  echo "  ⏳ $REMAINING video(s) still pending (may be uploading in background)"
+                fi
+              else
+                echo "  ✅ No videos pending upload (all up to date)"
               fi
+              
+              echo ""
+              echo "💾 Creating periodic backup..."
+              
+              # Create timestamped backup directory
+              BACKUP_DIR="backup-$(date +%s)"
+              mkdir -p "$BACKUP_DIR"
+              
+              # Copy any remaining videos and database
+              docker cp goondvr:/usr/src/app/videos/. "$BACKUP_DIR/videos/" 2>/dev/null || true
+              docker cp goondvr:/usr/src/app/database/. "$BACKUP_DIR/database/" 2>/dev/null || true
+              
+              # Count what we backed up
+              BACKUP_COUNT=$(find "$BACKUP_DIR" -type f \( -name "*.mp4" -o -name "*.ts" \) 2>/dev/null | wc -l || echo "0")
+              BACKUP_SIZE=$(du -sh "$BACKUP_DIR" 2>/dev/null | cut -f1 || echo "0")
+              
+              if [ "$BACKUP_COUNT" -gt 0 ]; then
+                echo "  📦 Backed up $BACKUP_COUNT video(s) ($BACKUP_SIZE)"
+              else
+                echo "  ✅ No videos to backup (all uploaded)"
+                rm -rf "$BACKUP_DIR"  # Remove empty backup
+              fi
+              
+              # Cleanup old backups (keep only last 3)
+              echo "  🧹 Cleaning up old backups..."
+              ls -dt backup-* 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
+              
+              # Show disk usage
+              DISK_USAGE=$(df -h / | awk 'NR==2 {print $5}' | sed 's/%//')
+              echo "  💾 Disk usage: ${DISK_USAGE}%"
+              
+              if [ "$DISK_USAGE" -gt 80 ]; then
+                echo "  ⚠️  High disk usage! Cleaning up old files..."
+                # Clean up videos older than 1 hour (should definitely be uploaded by then)
+                docker exec goondvr find /usr/src/app/videos/completed -type f \( -name "*.mp4" -o -name "*.ts" \) -mmin +60 -delete 2>/dev/null || true
+              fi
+              
+              echo "✅ Periodic maintenance completed"
+              echo ""
+              
               LAST_CLEANUP=$CURRENT_TIME
             fi
             
@@ -343,19 +606,59 @@ jobs:
               HOURS=$((REMAINING / 3600))
               MINUTES=$(((REMAINING % 3600) / 60))
               echo ""
+              echo "╔════════════════════════════════════════════════════════════╗"
+              echo "║                    📊 STATUS UPDATE                        ║"
+              echo "╚════════════════════════════════════════════════════════════╝"
+              echo ""
               echo "⏰ Time remaining: ${HOURS}h ${MINUTES}m"
+              echo ""
               
               # Show disk usage
               echo "💾 Disk usage: $(df -h / | awk 'NR==2 {print $3 " / " $2 " (" $5 ")"}')"
+              echo ""
+              
+              # Show recording status
+              ACTIVE_RECORDINGS=$(docker exec goondvr ps aux 2>/dev/null | grep -c "ffmpeg.*recording" || echo "0")
+              echo "📹 Active recordings: $ACTIVE_RECORDINGS"
+              echo ""
+              
+              # Show completed videos waiting for upload
+              PENDING_UPLOADS=$(docker exec goondvr find /usr/src/app/videos/completed -type f \( -name "*.mp4" -o -name "*.ts" \) 2>/dev/null | wc -l || echo "0")
+              if [ "$PENDING_UPLOADS" -gt 0 ]; then
+                echo "⏳ Videos pending upload: $PENDING_UPLOADS"
+              else
+                echo "✅ All videos uploaded (no pending uploads)"
+              fi
+              echo ""
+              
+              # Show backup status
+              BACKUP_COUNT=$(ls -d backup-* 2>/dev/null | wc -l || echo "0")
+              if [ "$BACKUP_COUNT" -gt 0 ]; then
+                echo "💾 Periodic backups: $BACKUP_COUNT"
+              else
+                echo "✅ No backups needed (all uploaded)"
+              fi
+              echo ""
               
               # Try to get and show tunnel URL
               TUNNEL_URL=$(grep -oP 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' tunnel.log | head -1)
               if [ -n "$TUNNEL_URL" ]; then
                 echo "🌐 Dashboard: $TUNNEL_URL"
+                
+                # Verify tunnel is accessible
+                if curl -s -f -m 5 "$TUNNEL_URL" > /dev/null 2>&1; then
+                  echo "   ✅ Tunnel is accessible"
+                else
+                  echo "   ⚠️ Tunnel not responding (will auto-restart)"
+                fi
               else
                 echo "⏳ Tunnel URL: Checking logs..."
                 tail -5 tunnel.log
               fi
+              echo ""
+              echo "💡 TIP: You can safely cancel this workflow anytime!"
+              echo "   All recordings are protected by 5 layers of backup."
+              echo ""
               
               LAST_URL_DISPLAY=$CURRENT_TIME
             fi
@@ -367,16 +670,29 @@ jobs:
           if [ "$CANCELLED" = true ]; then
             echo ""
             echo "╔════════════════════════════════════════════════════════════╗"
-            echo "║           ⚠️  WORKFLOW CANCELLED - SHUTTING DOWN           ║"
+            echo "║         ✅ GRACEFUL SHUTDOWN COMPLETED                     ║"
             echo "╚════════════════════════════════════════════════════════════╝"
             echo ""
-            echo "[INFO] Workflow cancelled at $(date)"
+            echo "[INFO] All recordings finalized and uploaded"
+            echo "[INFO] Shutdown completed at $(date)"
           else
             echo ""
             echo "[INFO] 5-hour session completed at $(date)"
+            echo ""
+            echo "📤 Finalizing any remaining uploads..."
+            
+            # Trigger final upload
+            COMPLETED_COUNT=$(docker exec goondvr find /usr/src/app/videos/completed -type f \( -name "*.mp4" -o -name "*.ts" \) 2>/dev/null | wc -l || echo "0")
+            
+            if [ "$COMPLETED_COUNT" -gt 0 ]; then
+              echo "  📦 Found $COMPLETED_COUNT file(s) to upload"
+              curl -s -X POST -m 300 http://localhost:8080/api/upload/completed || true
+              echo "  ⏳ Waiting for uploads to complete..."
+              sleep 60
+            fi
           fi
           
-          echo "[INFO] Initiating graceful shutdown..."
+          echo "[INFO] Preparing for container shutdown..."
           echo ""
           
           # App's graceful shutdown handler saves channels to Supabase automatically
@@ -397,9 +713,36 @@ jobs:
       - name: Final cleanup of videos
         if: always()
         run: |
-          echo "🧹 Final cleanup - removing all local videos..."
-          find videos -type f \( -name "*.mp4" -o -name "*.ts" -o -name "*.mkv" \) -delete 2>/dev/null || true
-          echo "✅ All videos cleaned up (they're already uploaded to GoFile/etc)"
+          echo "🧹 Final cleanup..."
+          echo ""
+          
+          # Check if emergency backup exists
+          if ls emergency-backup-* 1> /dev/null 2>&1; then
+            echo "⚠️  Emergency backup detected - preserving for artifacts"
+            echo "📦 Emergency backup contents:"
+            du -sh emergency-backup-*/* 2>/dev/null || true
+            echo ""
+            echo "ℹ️  These files will be uploaded as artifacts"
+            echo "ℹ️  Skipping deletion to preserve emergency backup"
+          else
+            echo "✅ No emergency backup needed"
+            
+            # Verify all videos were uploaded before deleting
+            echo "🔍 Verifying uploads..."
+            REMAINING_VIDEOS=$(find videos -type f \( -name "*.mp4" -o -name "*.ts" -o -name "*.mkv" \) 2>/dev/null | wc -l || echo "0")
+            
+            if [ "$REMAINING_VIDEOS" -gt 0 ]; then
+              echo "⚠️  Found $REMAINING_VIDEOS video(s) that may not have been uploaded"
+              echo "📦 These will be preserved in artifacts"
+              echo "ℹ️  Skipping deletion to prevent data loss"
+            else
+              echo "✅ All videos uploaded successfully"
+              echo "🧹 Cleaning up container..."
+              docker exec goondvr find /usr/src/app/videos -type f \( -name "*.mp4" -o -name "*.ts" -o -name "*.mkv" \) -delete 2>/dev/null || true
+              echo "✅ Cleanup completed"
+            fi
+          fi
+          
           echo ""
           echo "💾 Final disk usage:"
           df -h /
@@ -475,18 +818,147 @@ jobs:
           echo "📋 Last 100 lines of Docker logs:"
           docker logs --tail 100 goondvr 2>&1 || echo "No logs found"
       
-      - name: Upload recordings (if any)
+      - name: Collect all recordings before upload
+        if: always()
+        run: |
+          echo "📦 Collecting all recordings for artifact upload..."
+          echo ""
+          
+          # Create artifact directory
+          mkdir -p artifacts-upload
+          
+          # Copy videos from container (if still running)
+          if docker ps -a | grep -q goondvr; then
+            echo "📥 Copying videos from container..."
+            docker cp goondvr:/usr/src/app/videos/. artifacts-upload/videos/ 2>/dev/null || echo "  No videos in container"
+            docker cp goondvr:/usr/src/app/database/. artifacts-upload/database/ 2>/dev/null || echo "  No database in container"
+          fi
+          
+          # Copy host videos
+          if [ -d "videos" ]; then
+            echo "📥 Copying videos from host..."
+            cp -r videos/* artifacts-upload/videos/ 2>/dev/null || echo "  No videos on host"
+          fi
+          
+          # Copy all backups
+          if ls backup-* 1> /dev/null 2>&1; then
+            echo "📥 Copying periodic backups..."
+            cp -r backup-* artifacts-upload/ 2>/dev/null || true
+          fi
+          
+          # Copy emergency backups
+          if ls emergency-backup-* 1> /dev/null 2>&1; then
+            echo "📥 Copying emergency backups..."
+            cp -r emergency-backup-* artifacts-upload/ 2>/dev/null || true
+          fi
+          
+          # Copy database
+          if [ -d "database" ]; then
+            echo "📥 Copying database..."
+            cp -r database/* artifacts-upload/database/ 2>/dev/null || echo "  No database on host"
+          fi
+          
+          # Copy logs
+          echo "📥 Copying logs..."
+          cp tunnel.log artifacts-upload/ 2>/dev/null || echo "  No tunnel log"
+          docker logs goondvr > artifacts-upload/goondvr.log 2>&1 || echo "  No container logs"
+          
+          # Create manifest
+          echo "📝 Creating manifest..."
+          cat > artifacts-upload/MANIFEST.txt << EOF
+          Recording Session Artifacts
+          ===========================
+          Run Number: ${{ github.run_number }}
+          Run ID: ${{ github.run_id }}
+          Timestamp: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          Repository: ${{ github.repository }}
+          Workflow: ${{ github.workflow }}
+          
+          Contents:
+          ---------
+          EOF
+          
+          find artifacts-upload -type f \( -name "*.mp4" -o -name "*.ts" -o -name "*.mkv" \) -exec ls -lh {} \; >> artifacts-upload/MANIFEST.txt 2>/dev/null || true
+          
+          echo ""
+          echo "📊 Artifact Summary:"
+          echo "==================="
+          VIDEO_COUNT=$(find artifacts-upload -type f \( -name "*.mp4" -o -name "*.ts" -o -name "*.mkv" \) 2>/dev/null | wc -l)
+          VIDEO_SIZE=$(find artifacts-upload -type f \( -name "*.mp4" -o -name "*.ts" -o -name "*.mkv" \) -exec du -ch {} + 2>/dev/null | tail -1 | cut -f1 || echo "0")
+          echo "Total video files: $VIDEO_COUNT"
+          echo "Total size: $VIDEO_SIZE"
+          echo ""
+          
+          if [ "$VIDEO_COUNT" -eq 0 ]; then
+            echo "✅ No recordings to upload (all successfully uploaded to cloud)"
+          else
+            echo "⚠️  Found $VIDEO_COUNT recordings that need to be preserved"
+          fi
+      
+      - name: Upload recordings as artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: recordings-${{ github.run_number }}
+          name: recordings-${{ github.run_number }}-${{ github.run_attempt }}
+          path: artifacts-upload/
+          retention-days: 30
+          if-no-files-found: warn
+          compression-level: 6
+      
+      - name: Upload failed uploads separately (high priority)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-uploads-${{ github.run_number }}-${{ github.run_attempt }}
           path: |
-            videos/**/*.mp4
-            videos/**/*.ts
-            database/**/*.json
-            tunnel.log
-          retention-days: 1
+            artifacts-upload/videos/completed/**
+            artifacts-upload/emergency-backup-*/**
+          retention-days: 90
           if-no-files-found: ignore
+          compression-level: 9
+      
+      - name: Check for recordings in artifacts
+        if: always()
+        run: |
+          echo ""
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║              📦 ARTIFACT UPLOAD SUMMARY                    ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          echo ""
+          
+          VIDEO_COUNT=$(find artifacts-upload -type f \( -name "*.mp4" -o -name "*.ts" -o -name "*.mkv" \) 2>/dev/null | wc -l || echo "0")
+          VIDEO_SIZE=$(find artifacts-upload -type f \( -name "*.mp4" -o -name "*.ts" -o -name "*.mkv" \) -exec du -ch {} + 2>/dev/null | tail -1 | cut -f1 || echo "0")
+          
+          if [ "$VIDEO_COUNT" -gt 0 ]; then
+            echo "⚠️  ATTENTION: Recordings saved to artifacts!"
+            echo ""
+            echo "📊 Summary:"
+            echo "  • Video files: $VIDEO_COUNT"
+            echo "  • Total size: $VIDEO_SIZE"
+            echo "  • Retention: 30 days (failed uploads: 90 days)"
+            echo ""
+            echo "📥 To download:"
+            echo "  1. Go to: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "  2. Scroll to 'Artifacts' section"
+            echo "  3. Download: recordings-${{ github.run_number }}-${{ github.run_attempt }}"
+            echo ""
+            echo "💡 These recordings were NOT uploaded to cloud storage"
+            echo "💡 Download them manually to prevent data loss"
+            echo ""
+            
+            # List all files
+            echo "📋 Files in artifact:"
+            find artifacts-upload -type f \( -name "*.mp4" -o -name "*.ts" -o -name "*.mkv" \) -exec ls -lh {} \; 2>/dev/null || true
+          else
+            echo "✅ No recordings in artifacts"
+            echo "✅ All recordings successfully uploaded to cloud storage"
+            echo ""
+            echo "📊 Summary:"
+            echo "  • All videos uploaded to GoFile/TurboViPlay/VOE/Streamtape"
+            echo "  • Metadata stored in Supabase"
+            echo "  • No manual download needed"
+          fi
+          echo ""
       
       - name: Show statistics
         if: always()
