@@ -125,6 +125,8 @@ jobs:
           docker logs goondvr 2>&1 | tail -50
 
       - name: Install and start Cloudflare Tunnel
+        id: cloudflare_tunnel
+        continue-on-error: true
         run: |
           # Double-check app is responding before creating tunnel
           echo "🔍 Final verification that app is responding..."
@@ -419,6 +421,73 @@ jobs:
               fi
             done
           ) &
+
+      - name: Fallback to ngrok if Cloudflare fails
+        if: steps.cloudflare_tunnel.outcome == 'failure'
+        run: |
+          echo "⚠️  Cloudflare Tunnel failed, trying ngrok as fallback..."
+          
+          # Install ngrok
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt update && sudo apt install ngrok -y
+          
+          # Start ngrok (no auth required for basic usage)
+          ngrok http 8080 --log=stdout > ngrok.log 2>&1 &
+          NGROK_PID=$!
+          echo $NGROK_PID > ngrok.pid
+          
+          # Wait for ngrok URL
+          echo "⏳ Waiting for ngrok URL..."
+          TUNNEL_URL=""
+          for i in $(seq 1 30); do
+            # Try to get URL from ngrok API
+            TUNNEL_URL=$(curl -s http://localhost:4040/api/tunnels | grep -oP 'https://[a-zA-Z0-9-]+\.ngrok-free\.app' | head -1)
+            if [ -n "$TUNNEL_URL" ]; then
+              echo "✅ ngrok URL found: $TUNNEL_URL"
+              break
+            fi
+            sleep 2
+          done
+          
+          if [ -z "$TUNNEL_URL" ]; then
+            echo "❌ Failed to get ngrok URL"
+            cat ngrok.log
+            exit 1
+          fi
+          
+          # Test accessibility
+          echo "🔍 Testing ngrok tunnel..."
+          sleep 5
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$TUNNEL_URL" || echo "000")
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ ngrok tunnel is accessible"
+          else
+            echo "⚠️  ngrok returned HTTP $HTTP_CODE (may need to click through warning page)"
+          fi
+          
+          echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
+          echo "$TUNNEL_URL" > tunnel_url.txt
+          
+          echo ""
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║                    🌐 WEB UI ACCESS (ngrok)                ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "   $TUNNEL_URL"
+          echo ""
+          echo "   ⚠️  Note: ngrok free tier shows a warning page first"
+          echo "   Click 'Visit Site' to access the UI"
+          echo ""
+          
+          # Save to Supabase
+          curl -s -X POST "${{ secrets.SUPABASE_URL }}/rest/v1/tunnel_sessions" \
+            -H "apikey: ${{ secrets.SUPABASE_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d "{\"run_id\": ${{ github.run_number }}, \"url\": \"$TUNNEL_URL\", \"started_at\": \"$(date -u +%FT%TZ)\", \"is_active\": true}" \
+            > /dev/null 2>&1 || true
 
       - name: Create GitHub Actions Summary
         if: always()
