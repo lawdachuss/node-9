@@ -192,6 +192,13 @@ jobs:
             echo "🔍 Verifying tunnel accessibility..."
             local VERIFIED=false
             
+            # First, verify the backend is still responding
+            echo "Checking backend app on localhost:8080..."
+            if ! curl -sf http://localhost:8080 > /dev/null 2>&1; then
+              echo "⚠️  Backend app not responding! Tunnel will fail."
+              docker logs goondvr --tail 50 || true
+            fi
+            
             for i in $(seq 1 20); do
               echo "Testing tunnel (attempt $i/20)..."
               
@@ -202,6 +209,11 @@ jobs:
               HTTP_CODE=$(echo "$HTTP_CODE" | grep -oE '[0-9]{3}' | head -1)
               
               if [ -z "$HTTP_CODE" ]; then
+                # Try with verbose output to see what's happening
+                if [ $i -eq 5 ] || [ $i -eq 10 ]; then
+                  echo "Debug: Testing with verbose output..."
+                  curl -v --connect-timeout 5 --max-time 10 "$TUNNEL_URL" 2>&1 | head -20 || true
+                fi
                 echo "⏳ Connection timeout or DNS not resolved yet..."
                 sleep 5
                 continue
@@ -222,6 +234,13 @@ jobs:
                 break
               elif [ "$HTTP_CODE" = "502" ] || [ "$HTTP_CODE" = "503" ] || [ "$HTTP_CODE" = "504" ]; then
                 echo "⚠️  Gateway error (HTTP $HTTP_CODE) - backend not responding"
+                # Check if backend is still alive
+                if ! curl -sf http://localhost:8080 > /dev/null 2>&1; then
+                  echo "❌ Backend app died! Cannot proceed."
+                  return 1
+                fi
+              elif [ "$HTTP_CODE" = "000" ]; then
+                echo "⚠️  HTTP 000 (connection failed - DNS propagation or network issue)"
               else
                 echo "⚠️  HTTP $HTTP_CODE (waiting for 200...)"
               fi
@@ -232,6 +251,22 @@ jobs:
             if [ "$VERIFIED" = false ]; then
               echo "❌ Tunnel URL exists but is NOT accessible after 100 seconds"
               echo "Last HTTP code received: ${HTTP_CODE:-'none'}"
+              
+              # Additional diagnostics
+              echo ""
+              echo "🔍 Running diagnostics..."
+              echo "1. DNS resolution test:"
+              nslookup $(echo "$TUNNEL_URL" | sed 's|https://||' | sed 's|/.*||') || true
+              
+              echo ""
+              echo "2. Ping test:"
+              ping -c 2 $(echo "$TUNNEL_URL" | sed 's|https://||' | sed 's|/.*||') || true
+              
+              echo ""
+              echo "3. Backend app test:"
+              curl -v http://localhost:8080 2>&1 | head -20 || true
+              
+              echo ""
               echo "This tunnel is unusable - will retry with new tunnel"
               kill $TUNNEL_PID 2>/dev/null || true
               return 1
@@ -245,25 +280,26 @@ jobs:
             return 0
           }
 
-          # Try up to 3 times to get a working tunnel
+          # Try up to 2 times to get a working tunnel (reduced from 3)
+          # Most failures are DNS propagation, not actual tunnel issues
           TUNNEL_SUCCESS=false
-          for attempt in 1 2 3; do
+          for attempt in 1 2; do
             if create_tunnel $attempt; then
               TUNNEL_SUCCESS=true
               break
             else
               echo "❌ Attempt $attempt failed"
-              if [ $attempt -lt 3 ]; then
-                echo "⏳ Waiting 15 seconds before retry..."
-                sleep 15
+              if [ $attempt -lt 2 ]; then
+                echo "⏳ Waiting 10 seconds before retry..."
+                sleep 10
               fi
             fi
           done
 
           if [ "$TUNNEL_SUCCESS" = false ]; then
-            echo "⚠️  Failed to verify tunnel accessibility after 3 attempts"
-            echo "⚠️  This may be due to Cloudflare DNS propagation delays"
-            echo "⚠️  Proceeding anyway - tunnel may become accessible in 1-2 minutes"
+            echo "⚠️  Failed to verify tunnel accessibility after 2 attempts"
+            echo "⚠️  This is usually due to Cloudflare DNS propagation delays"
+            echo "⚠️  Proceeding anyway - tunnel should become accessible in 1-2 minutes"
             
             # Get the last tunnel URL even if not verified
             TUNNEL_URL=$(grep -oP 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' tunnel.log | head -1)
@@ -283,7 +319,10 @@ jobs:
             echo ""
             echo "   $TUNNEL_URL"
             echo ""
-            echo "   Status: ⏳ PROPAGATING (may take 1-2 minutes)"
+            echo "   Status: ⏳ PROPAGATING (wait 2-3 minutes then try accessing)"
+            echo ""
+            echo "   The tunnel URL exists but DNS may not be propagated yet."
+            echo "   Try accessing it in 2-3 minutes."
             echo ""
           else
             # Read the verified tunnel URL
