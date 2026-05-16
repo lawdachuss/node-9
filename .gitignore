@@ -94,3 +94,6 @@ Thumbs.db
 *.tmp
 *.temp
 deploy.tar.gz
+
+# Note: database/ is NOT ignored here — see "Database files" section above
+# (only database/* with !recordings.json exceptions)
