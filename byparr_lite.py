@@ -19,6 +19,7 @@ import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock
+from urllib.parse import urlparse
 
 CHROMIUM_LOCK = Lock()
 
@@ -148,6 +149,10 @@ class Handler(BaseHTTPRequestHandler):
         if cmd == "request.get":
             url = req.get("url", "")
             max_timeout = req.get("maxTimeout", 60000)
+            parsed = urlparse(url)
+            if not parsed.scheme or parsed.scheme not in ("http", "https") or not parsed.netloc:
+                self._send_json(400, {"status": "error", "message": "url must be a valid http(s) URL"})
+                return
             print(f"[byparr-lite] Solving CF challenge for: {url}", flush=True)
             try:
                 cookies, user_agent = solve_cloudflare(url, max_timeout)

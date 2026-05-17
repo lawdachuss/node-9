@@ -200,104 +200,88 @@ func loadRecordings() *RecordingsDB {
                 }
         }
 
-        // Fall back to local file
-        data, err := os.ReadFile("/database/recordings.json")
-        if err != nil {
-                return empty
-        }
-        var db RecordingsDB
-        if err := json.Unmarshal(data, &db); err != nil {
-                return empty
-        }
-        return &db
+	// Supabase is the source of truth for recordings.
+	return empty
 }
 
 func saveRecordings(db *RecordingsDB) {
-        data, err := json.MarshalIndent(db, "", "  ")
-        if err != nil {
-                return
-        }
+	data, err := json.MarshalIndent(db, "", "  ")
+	if err != nil {
+		return
+	}
 
-        // Save to Supabase
-        if err := server.SaveRecordingsToDB(data); err != nil {
-                fmt.Printf("[WARN] [db] could not save recordings to Supabase: %v\n", err)
-        }
-
-        // Also keep local file as backup
-        os.MkdirAll("/database", 0777)
-        os.WriteFile("/database/recordings.json", data, 0644)
+	// Save to Supabase
+	if err := server.SaveRecordingsToDB(data); err != nil {
+		fmt.Printf("[WARN] [db] could not save recordings to Supabase: %v\n", err)
+	}
 }
 
 func walkDir(dir string) []*VideoEntry {
-        var entries []*VideoEntry
-        entries, _ = collectVideos(dir, entries)
-        return entries
-}
+	var entries []*VideoEntry
 
-func collectVideos(dir string, entries []*VideoEntry) ([]*VideoEntry, error) {
-        d, err := os.Open(dir)
-        if err != nil {
-                return entries, nil
-        }
-        defer d.Close()
+	d, err := os.Open(dir)
+	if err != nil {
+		return entries
+	}
+	defer d.Close()
 
-        items, err := d.Readdir(-1)
-        if err != nil {
-                return entries, nil
-        }
+	items, err := d.Readdir(-1)
+	if err != nil {
+		return entries
+	}
 
-        for _, item := range items {
-                full := filepath.Join(dir, item.Name())
-                if item.IsDir() {
-                        entries, _ = collectVideos(full, entries)
-                        continue
-                }
-                ext := strings.ToLower(filepath.Ext(item.Name()))
-                if !videoExts[ext] {
-                        continue
-                }
-                if strings.Contains(item.Name(), ".video.") || strings.Contains(item.Name(), ".audio.") {
-                        continue
-                }
+	for _, item := range items {
+		full := filepath.Join(dir, item.Name())
+		if item.IsDir() {
+			entries = append(entries, walkDir(full)...)
+			continue
+		}
 
-                username := extractUsername(item.Name())
-                sizeStr := internal.FormatFilesize(int(item.Size()))
-                if sizeStr == "" {
-                        sizeStr = "0 B"
-                }
-                modTime := item.ModTime().Format("2006-01-02 15:04")
+		ext := strings.ToLower(filepath.Ext(item.Name()))
+		if !videoExts[ext] {
+			continue
+		}
+		if strings.Contains(item.Name(), ".video.") || strings.Contains(item.Name(), ".audio.") {
+			continue
+		}
 
-                isOutput := false
-                if server.Config != nil && server.Config.OutputDir != "" {
-                        absPath, _ := filepath.Abs(full)
-                        absOut, _ := filepath.Abs(server.Config.OutputDir)
-                        isOutput = strings.HasPrefix(absPath, absOut)
-                }
+		username := extractUsername(item.Name())
+		sizeStr := internal.FormatFilesize(int(item.Size()))
+		if sizeStr == "" {
+			sizeStr = "0 B"
+		}
+		modTime := item.ModTime().Format("2006-01-02 15:04")
 
-                // Read thumbnail URL from .thumb sidecar
-                thumbURL := ""
-                if d, e := os.ReadFile(full + ".thumb"); e == nil {
-                        thumbURL = strings.TrimSpace(string(d))
-                }
-                // Read preview sprite URL from .sprite sidecar
-                spriteURL := ""
-                if d, e := os.ReadFile(full + ".sprite"); e == nil {
-                        spriteURL = strings.TrimSpace(string(d))
-                }
+		isOutput := false
+		if server.Config != nil && server.Config.OutputDir != "" {
+			absPath, _ := filepath.Abs(full)
+			absOut, _ := filepath.Abs(server.Config.OutputDir)
+			isOutput = strings.HasPrefix(absPath, absOut)
+		}
 
-                entries = append(entries, &VideoEntry{
-                        Username:     username,
-                        Filename:     item.Name(),
-                        FullPath:     full,
-                        Size:         sizeStr,
-                        ModTime:      modTime,
-                        ModTimeSort:  item.ModTime().Format(time.RFC3339),
-                        ThumbnailURL: thumbURL,
-                        SpriteURL:    spriteURL,
-                        IsOutputDir:  isOutput,
-                })
-        }
-        return entries, nil
+		thumbURL := ""
+		if d, e := os.ReadFile(full + ".thumb"); e == nil {
+			thumbURL = strings.TrimSpace(string(d))
+		}
+		spriteURL := ""
+		if d, e := os.ReadFile(full + ".sprite"); e == nil {
+			spriteURL = strings.TrimSpace(string(d))
+		}
+
+		entries = append(entries, &VideoEntry{
+			Username:     username,
+			Filename:     item.Name(),
+			FullPath:     full,
+			Size:         sizeStr,
+			ModTime:      modTime,
+			ModTimeSort:  item.ModTime().Format(time.RFC3339),
+			ThumbnailURL: thumbURL,
+			SpriteURL:    spriteURL,
+			IsOutputDir:  isOutput,
+		})
+	}
+
+	return entries
 }
 
 func extractUsername(filename string) string {

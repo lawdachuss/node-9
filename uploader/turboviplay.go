@@ -87,7 +87,12 @@ func (u *TurboViPlayUploader) Upload(filePath string) (string, error) {
 func (u *TurboViPlayUploader) getUploadServer() (string, error) {
 	url := fmt.Sprintf("%s/uploadserver?keyApi=%s", turboViPlayAPIBase, u.apiKey)
 	
-	resp, err := u.client.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("User-Agent", defaultUserAgent)
+	resp, err := u.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request upload server: %w", err)
 	}
@@ -154,7 +159,7 @@ func (u *TurboViPlayUploader) uploadFile(filePath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
-
+	req.Header.Set("User-Agent", defaultUserAgent)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	// Send request

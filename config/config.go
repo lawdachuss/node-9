@@ -39,6 +39,7 @@ func New(c *cli.Context) (*entity.Config, error) {
                 Domain:         c.String("domain"),
                 OutputDir:      c.String("output-dir"),
                 PerModelFolder: c.Bool("per-model-folder"),
+                DeleteLocalAfterUpload: c.Bool("delete-local-after-upload"),
                 TurboViPlayAPIKey: c.String("turboviplay-api-key"),
                 VoeSXAPIKey:       c.String("voesx-api-key"),
                 StreamtapeLogin:   c.String("streamtape-login"),

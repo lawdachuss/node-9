@@ -93,7 +93,12 @@ func (u *VoeSXUploader) Upload(filePath string) (string, error) {
 func (u *VoeSXUploader) getUploadServer() (string, error) {
 	url := fmt.Sprintf("%s/upload/server?key=%s", voeSXAPIBase, u.apiKey)
 	
-	resp, err := u.client.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("User-Agent", defaultUserAgent)
+	resp, err := u.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request upload server: %w", err)
 	}
@@ -164,7 +169,7 @@ func (u *VoeSXUploader) uploadFile(filePath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
-
+	req.Header.Set("User-Agent", defaultUserAgent)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	// Send request

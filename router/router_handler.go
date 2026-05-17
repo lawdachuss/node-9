@@ -613,7 +613,35 @@ func videoURLForHostLink(host, link string) string {
         if link == "" {
                 return ""
         }
-        return ""
+
+        normalizedHost := strings.ToLower(host)
+        normalizedLink := strings.ToLower(link)
+
+        switch {
+        case strings.Contains(normalizedHost, "streamtape") || strings.Contains(normalizedLink, "streamtape.com/"):
+                if code := extractStreamtapeCode(link); code != "" {
+                        return "https://streamtape.com/e/" + code
+                }
+                return link
+        case strings.Contains(normalizedHost, "byse") || strings.Contains(normalizedLink, "byse.sx/") || strings.Contains(normalizedLink, "filemoon.sx/"):
+                if code := extractFileCode(link); code != "" {
+                        return "https://filemoon.sx/e/" + code
+                }
+                return link
+        case strings.Contains(normalizedHost, "voe") || strings.Contains(normalizedLink, "voe.sx/"):
+                if code := extractFileCode(link); code != "" {
+                        return "https://voe.sx/e/" + code
+                }
+                return link
+        case strings.Contains(normalizedHost, "sendcm") || strings.Contains(normalizedLink, "send.now/"):
+                return link
+        case strings.Contains(normalizedHost, "gofile") || strings.Contains(normalizedLink, "gofile.io/"):
+                return link
+        case strings.Contains(normalizedHost, "turboviplay") || strings.Contains(normalizedLink, "emturbovid.com/") || strings.Contains(normalizedLink, "turboviplay.com/"):
+                return link
+        default:
+                return ""
+        }
 }
 
 func readSidecar(path string) string {

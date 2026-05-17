@@ -133,6 +133,14 @@ func (ch *Channel) Pause() {
 	ch.Update()
 	ch.Info("channel paused")
 
+	// Finalize any in-progress files immediately so they can be uploaded
+	// and removed when `DeleteLocalAfterUpload` is enabled.
+	go func() {
+		if err := ch.Cleanup(); err != nil {
+			ch.Error("cleanup on pause: %s", err.Error())
+		}
+	}()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	ch.PauseCancelFunc = cancel
 	go ch.CheckOnlineWhilePaused(ctx, 0)

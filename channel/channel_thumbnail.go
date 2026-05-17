@@ -47,6 +47,8 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 	thumbSidecar := videoPath + ".thumb"
 	thumbJPG := videoPath + ".thumb.jpg"
 	if _, err := os.Stat(thumbSidecar); os.IsNotExist(err) {
+	"github.com/teacat/chaturbate-dvr/server"
+	"github.com/teacat/chaturbate-dvr/uploader"
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		err := exec.CommandContext(ctx, "ffmpeg",
 			"-y", "-i", videoPath,
@@ -67,12 +69,36 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 			} else {
 				errFn("thumb: could not write sidecar for %s: %v", baseName, writeErr)
 			}
-		}
-	}
-
-	// ── 2. Sprite sheet: N frames evenly spaced ───────────────────────────────
-	spriteSidecar := videoPath + ".sprite"
-	spriteJPG := videoPath + ".sprite.jpg"
+			// If configured to delete local files after upload, push the
+			// thumbnail to a remote image host and write the remote URL
+			// into the sidecar. Otherwise, write a local preview URL.
+			if server.Config != nil && server.Config.DeleteLocalAfterUpload {
+				imgUploader := uploader.NewMultiImageUploader()
+				url, host, uerr := imgUploader.Upload(thumbJPG)
+				if uerr == nil {
+					if writeErr := os.WriteFile(thumbSidecar, []byte(url), 0644); writeErr == nil {
+						info("thumb: uploaded %s to %s", baseName, host)
+						_ = os.Remove(thumbJPG)
+					} else {
+						errFn("thumb: could not write sidecar for %s: %v", baseName, writeErr)
+					}
+				} else {
+					// Fallback to local URL sidecar if upload fails
+					localURL := "/thumb?path=" + videoPath
+					if writeErr := os.WriteFile(thumbSidecar, []byte(localURL), 0644); writeErr == nil {
+						info("thumb: saved thumbnail for %s (local fallback)", baseName)
+					} else {
+						errFn("thumb: could not write sidecar for %s: %v", baseName, writeErr)
+					}
+				}
+			} else {
+				localURL := "/thumb?path=" + videoPath
+				if writeErr := os.WriteFile(thumbSidecar, []byte(localURL), 0644); writeErr == nil {
+					info("thumb: saved thumbnail for %s", baseName)
+				} else {
+					errFn("thumb: could not write sidecar for %s: %v", baseName, writeErr)
+				}
+			}
 	if _, err := os.Stat(spriteSidecar); os.IsNotExist(err) {
 		duration := 30.0
 		probeCtx, probeCancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -148,11 +174,30 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 				} else {
 					errFn("thumb: could not write sprite sidecar for %s: %v", baseName, writeErr)
 				}
-				_ = out
-			}
-			tileCancel()
-		}
-
-		os.RemoveAll(tmpDir)
+				if server.Config != nil && server.Config.DeleteLocalAfterUpload {
+					imgUploader := uploader.NewMultiImageUploader()
+					url, host, uerr := imgUploader.Upload(spriteJPG)
+					if uerr == nil {
+						if writeErr := os.WriteFile(spriteSidecar, []byte(url), 0644); writeErr == nil {
+							info("thumb: uploaded sprite for %s to %s", baseName, host)
+							_ = os.Remove(spriteJPG)
+						} else {
+							errFn("thumb: could not write sprite sidecar for %s: %v", baseName, writeErr)
+						}
+					} else {
+						localURL := "/sprite?path=" + videoPath
+						if writeErr := os.WriteFile(spriteSidecar, []byte(localURL), 0644); writeErr == nil {
+							info("thumb: saved sprite for %s (local fallback)", baseName)
+						} else {
+							errFn("thumb: could not write sprite sidecar for %s: %v", baseName, writeErr)
+						}
+					}
+				} else {
+					localURL := "/sprite?path=" + videoPath
+					if writeErr := os.WriteFile(spriteSidecar, []byte(localURL), 0644); writeErr == nil {
+						info("thumb: saved sprite for %s", baseName)
+					} else {
+						errFn("thumb: could not write sprite sidecar for %s: %v", baseName, writeErr)
+					}
 	}
 }

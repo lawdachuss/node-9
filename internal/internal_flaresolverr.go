@@ -7,6 +7,7 @@ import (
         "fmt"
         "io"
         "net/http"
+        "net/url"
         "os"
         "strings"
         "time"
@@ -58,9 +59,27 @@ type flareSolverrResponse struct {
         } `json:"solution"`
 }
 
+func isValidHTTPURL(raw string) bool {
+        parsed, err := url.ParseRequestURI(strings.TrimSpace(raw))
+        if err != nil {
+                return false
+        }
+        if parsed.Scheme != "http" && parsed.Scheme != "https" {
+                return false
+        }
+        return parsed.Host != ""
+}
+
 // GetFreshCookiesViaFlareSolverr uses FlareSolverr/Byparr to bypass Cloudflare and get fresh cookies
 func GetFreshCookiesViaFlareSolverr(ctx context.Context, url string) (string, string, error) {
+        if !isValidHTTPURL(url) {
+                return "", "", fmt.Errorf("byparr request URL must be a valid http(s) URL: %q", url)
+        }
+
         flaresolverrURL := getFlareSolverrURL()
+        if !isValidHTTPURL(flaresolverrURL) {
+                return "", "", fmt.Errorf("FLARESOLVERR_URL must be a valid http(s) URL: %q", flaresolverrURL)
+        }
 
         // Create a unique session for this request to avoid conflicts
         sessionID := fmt.Sprintf("session_%d", time.Now().UnixNano())
@@ -212,6 +231,9 @@ func FetchStreamViaFlareSolverr(ctx context.Context, username string) (string, s
         flaresolverrURL := getFlareSolverrURL()
         if flaresolverrURL == "" {
                 return "", "", fmt.Errorf("FLARESOLVERR_URL not configured")
+        }
+        if !isValidHTTPURL(flaresolverrURL) {
+                return "", "", fmt.Errorf("FLARESOLVERR_URL must be a valid http(s) URL: %q", flaresolverrURL)
         }
 
         // Step 1: Get the page via FlareSolverr to obtain fresh cookies and user-agent

@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 logging.basicConfig(level=logging.INFO, format='[UPLOAD] %(message)s')
 log = logging.getLogger(__name__)
 
+DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+DEFAULT_HEADERS = {'User-Agent': DEFAULT_USER_AGENT}
+
 DB_FILE = '/database/recordings.json'
 
 def load_db():
@@ -27,7 +30,7 @@ def extract_username(filename):
 
 def fetch_channel_meta(username):
     try:
-        r = requests.get(f'https://chaturbate.com/api/chatvideocontext/{username}/', timeout=15)
+        r = requests.get(f'https://chaturbate.com/api/chatvideocontext/{username}/', headers=DEFAULT_HEADERS, timeout=15)
         if r.status_code != 200:
             return None
         data = r.json()
@@ -90,6 +93,14 @@ def get_embed_url(host_name, link):
     if host_name == 'SendCM':
         return link
     return ''
+
+def safe_json(resp):
+    try:
+        return resp.json()
+    except ValueError as e:
+        log.warning(f'Invalid JSON response from {resp.url}: {e}; body={resp.text[:200]}')
+        return {}
+
 
 def add_recording(db, filename, links, resolution='', framerate=0,
                   thumbnail_url='', sprite_url='', filesize=0, embed_url=''):
@@ -175,16 +186,30 @@ def mux_pair(video_path, audio_path, output_path):
     return True
 
 def upload_catbox(filepath):
+    headers = DEFAULT_HEADERS
     try:
         with open(filepath, 'rb') as fh:
             r = requests.post(
                 'https://catbox.moe/user/api.php',
+                headers=headers,
                 data={'reqtype': 'fileupload'},
                 files={'fileToUpload': (os.path.basename(filepath), fh)},
                 timeout=(15, 120),
             )
         if r.status_code == 200 and r.text.startswith('http'):
             return r.text.strip()
+        if r.status_code == 412 and 'invalid uploader' in r.text.lower():
+            log.warning('Catbox upload returned 412 Invalid uploader, retrying with alternate endpoint')
+            with open(filepath, 'rb') as fh:
+                r = requests.post(
+                    'https://files.catbox.moe/user/api.php',
+                    headers=headers,
+                    data={'reqtype': 'fileupload'},
+                    files={'fileToUpload': (os.path.basename(filepath), fh)},
+                    timeout=(15, 120),
+                )
+                if r.status_code == 200 and r.text.startswith('http'):
+                    return r.text.strip()
         log.warning(f'Catbox upload failed: HTTP {r.status_code} {r.text[:120]}')
     except Exception as e:
         log.warning(f'Catbox upload failed: {e}')
@@ -290,26 +315,34 @@ def ensure_preview_sidecars(filepath):
 def upload_gofile(filepath):
     name = os.path.basename(filepath)
     key = os.environ.get('GOFILE_API_KEY', '')
-    headers = {'Authorization': f'Bearer {key}'} if key else {}
+    headers = {**DEFAULT_HEADERS}
+    if key:
+        headers['Authorization'] = f'Bearer {key}'
+
     try:
         with open(filepath, 'rb') as fh:
             r = requests.post('https://upload.gofile.io/uploadfile',
                               headers=headers, files={'file': (name, fh)}, timeout=600)
-        if r.status_code == 200 and r.json().get('status') == 'ok':
-            link = r.json()['data'].get('downloadPage', '')
+        data = safe_json(r)
+        if r.status_code == 200 and data.get('status') == 'ok':
+            link = data['data'].get('downloadPage', '')
             if link:
                 log.info(f'GoFile OK: {name} -> {link}')
                 return link
     except Exception as e:
         log.warning(f'GoFile v2 FAIL: {e}')
     try:
-        r = requests.get('https://api.gofile.io/servers', timeout=10)
-        server = r.json()['data']['servers'][0]['name'] if r.status_code == 200 and r.json().get('status') == 'ok' else 'store1'
-        url = f'https://{server}.gofile.io/contents/uploadfile'
+        r = requests.get('https://api.gofile.io/servers', headers=DEFAULT_HEADERS, timeout=10)
+        data = safe_json(r)
+        server_name = 'store1'
+        if r.status_code == 200 and data.get('status') == 'ok':
+            server_name = data['data']['servers'][0]['name'] if data['data'].get('servers') else server_name
+        url = f'https://{server_name}.gofile.io/contents/uploadfile'
         with open(filepath, 'rb') as fh:
             r = requests.post(url, headers=headers, files={'file': (name, fh)}, timeout=600)
-        if r.status_code == 200 and r.json().get('status') == 'ok':
-            link = r.json()['data'].get('downloadPage', '')
+        data = safe_json(r)
+        if r.status_code == 200 and data.get('status') == 'ok':
+            link = data['data'].get('downloadPage', '')
             if link:
                 log.info(f'GoFile OK: {name} -> {link}')
                 return link
@@ -333,7 +366,7 @@ def upload_streamtape(filepath):
                     sha256_hash.update(byte_block)
             sha256 = sha256_hash.hexdigest()
 
-            r = requests.get(f'https://api.streamtape.com/file/ul?login={login}&key={key}&sha256={sha256}', timeout=15)
+            r = requests.get(f'https://api.streamtape.com/file/ul?login={login}&key={key}&sha256={sha256}', headers=DEFAULT_HEADERS, timeout=15)
             if r.status_code != 200:
                 log.warning(f'Streamtape INIT FAIL (attempt {attempt}): HTTP {r.status_code} {r.text[:200]}')
                 if attempt < max_attempts:
@@ -347,7 +380,7 @@ def upload_streamtape(filepath):
                 continue
             upload_url = data['result']['url']
             with open(filepath, 'rb') as fh:
-                r = requests.post(upload_url, files={'file': (name, fh)}, timeout=(30, 600))
+                r = requests.post(upload_url, headers=DEFAULT_HEADERS, files={'file': (name, fh)}, timeout=(30, 600))
             if r.status_code == 200:
                 result = r.json()
                 link = result.get('result', {}).get('url', '') or result.get('url', '')
@@ -372,7 +405,7 @@ def upload_voesx(filepath):
     max_attempts = 3
     for attempt in range(1, max_attempts + 1):
         try:
-            r = requests.get(f'https://voe.sx/api/upload/server?key={key}', timeout=15)
+            r = requests.get(f'https://voe.sx/api/upload/server?key={key}', headers=DEFAULT_HEADERS, timeout=15)
             if r.status_code != 200:
                 log.warning(f'VoeSX INIT FAIL (attempt {attempt}): HTTP {r.status_code} {r.text[:200]}')
                 if attempt < max_attempts:
@@ -387,7 +420,7 @@ def upload_voesx(filepath):
             upload_url = data['result']
 
             with open(filepath, 'rb') as fh:
-                r = requests.post(upload_url, data={'key': key}, files={'file': (name, fh)}, timeout=(30, 600))
+                r = requests.post(upload_url, headers=DEFAULT_HEADERS, data={'key': key}, files={'file': (name, fh)}, timeout=(30, 600))
             if r.status_code == 200:
                 result = r.json()
                 if result.get('success'):
@@ -416,9 +449,9 @@ def upload_sendcm(filepath):
                 time.sleep(backoff)
 
             if anon:
-                r = requests.get('https://send.now/api/upload/server', timeout=15)
+                r = requests.get('https://send.now/api/upload/server', headers=DEFAULT_HEADERS, timeout=15)
             else:
-                r = requests.get(f'https://send.now/api/upload/server?key={key}', timeout=15)
+                r = requests.get(f'https://send.now/api/upload/server?key={key}', headers=DEFAULT_HEADERS, timeout=15)
             if r.status_code != 200:
                 log.warning(f'SendCM INIT FAIL (attempt {attempt}): HTTP {r.status_code} {r.text[:200]}')
                 continue
@@ -438,7 +471,7 @@ def upload_sendcm(filepath):
                 continue
 
             with open(filepath, 'rb') as fh:
-                r = requests.post(upload_url, data={'key': key}, files={'file': (name, fh)}, timeout=(30, 600))
+                r = requests.post(upload_url, headers=DEFAULT_HEADERS, data={'key': key}, files={'file': (name, fh)}, timeout=(30, 600))
             if r.status_code == 200:
                 result = r.json()
                 if isinstance(result, list):
@@ -471,7 +504,7 @@ def upload_byse(filepath):
     max_attempts = 3
     for attempt in range(1, max_attempts + 1):
         try:
-            r = requests.get(f'https://api.byse.sx/upload/server?key={key}', timeout=15)
+            r = requests.get(f'https://api.byse.sx/upload/server?key={key}', headers=DEFAULT_HEADERS, timeout=15)
             if r.status_code != 200:
                 log.warning(f'Byse INIT FAIL (attempt {attempt}): HTTP {r.status_code} {r.text[:200]}')
                 if attempt < max_attempts:
@@ -486,7 +519,7 @@ def upload_byse(filepath):
             upload_url = data['result']
 
             with open(filepath, 'rb') as fh:
-                r = requests.post(upload_url, data={'key': key}, files={'file': (name, fh)}, timeout=(30, 600))
+                r = requests.post(upload_url, headers=DEFAULT_HEADERS, data={'key': key}, files={'file': (name, fh)}, timeout=(30, 600))
             if r.status_code == 200:
                 result = r.json()
                 files = result.get('files', [])

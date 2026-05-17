@@ -63,20 +63,24 @@ func saveRecDB(db *recDB) {
                 return
         }
 
-        // Save to Supabase
+        dbDir := filepath.Dir(recordingsDBPath)
+        if err := os.MkdirAll(dbDir, 0o755); err != nil {
+                fmt.Printf("[WARN] [db] could not create recordings directory %s: %v\n", dbDir, err)
+        } else if err := os.WriteFile(recordingsDBPath, data, 0o644); err != nil {
+                fmt.Printf("[WARN] [db] could not save recordings to local file: %v\n", err)
+        }
+
+        // Save to Supabase if configured
         if err := server.SaveRecordingsToDB(data); err != nil {
                 fmt.Printf("[WARN] [db] could not save recordings to Supabase: %v\n", err)
         }
-
-        // Also keep local file as backup
-        os.MkdirAll(filepath.Dir(recordingsDBPath), 0777)
-        os.WriteFile(recordingsDBPath, data, 0644)
 }
 
 func embedURLFromLink(host, link string) string {
         if link == "" {
                 return ""
         }
+
         switch host {
         case "Streamtape":
                 if strings.Contains(link, "/v/") {
@@ -94,12 +98,9 @@ func embedURLFromLink(host, link string) string {
                         return "https://voe.sx/e/" + code
                 }
         case "Byse":
-                // Handle both download URLs (/d/) and embed URLs (/e/)
-                // Extract the file code from the last part of the URL
                 code := link[strings.LastIndex(link, "/")+1:]
                 if code != "" {
-                        // Always return embed URL format for video playback
-                        return "https://api.byse.sx/e/" + code
+                        return "https://filemoon.sx/e/" + code
                 }
         case "SendCM":
                 return link
@@ -111,10 +112,10 @@ func embedURLFromLink(host, link string) string {
 // It uses the channel's logging so upload events appear in the UI logs.
 // GoFile always uploads (no API key needed).
 // Other services upload only if their API key is configured.
-func (ch *Channel) uploadFile(filePath string) {
+func (ch *Channel) uploadFile(filePath string) bool {
         cfg := server.Config
         if cfg == nil {
-                return
+                return false
         }
 
         filename := filepath.Base(filePath)
@@ -209,7 +210,19 @@ func (ch *Channel) uploadFile(filePath string) {
                 }
                 saveRecDB(db)
                 ch.Info("upload: saved upload links to database for %s", filename)
+                                // If configured to delete local files after upload, remove
+                                // the video and any generated sidecars (thumbnails/sprites).
+                                if server.Config != nil && server.Config.DeleteLocalAfterUpload {
+                                        _ = os.Remove(filePath)
+                                        _ = os.Remove(filePath + ".thumb.jpg")
+                                        _ = os.Remove(filePath + ".sprite.jpg")
+                                        _ = os.Remove(filePath + ".thumb")
+                                        _ = os.Remove(filePath + ".sprite")
+                                        ch.Info("upload: removed local files for %s", filename)
+                                }
         }
+
+        return len(successful) > 0
 }
 
 // Ensure Channel implements uploader.Logger.

@@ -98,7 +98,12 @@ func (u *GoFileUploader) Upload(filePath string) (string, error) {
 }
 
 func (u *GoFileUploader) getBestServer() (string, error) {
-	resp, err := u.client.Get(gofileAPIBase + "/servers")
+	req, err := http.NewRequest("GET", gofileAPIBase+"/servers", nil)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("User-Agent", defaultUserAgent)
+	resp, err := u.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request servers: %w", err)
 	}
@@ -172,6 +177,7 @@ func (u *GoFileUploader) uploadFile(server, filePath string) (string, error) {
 		return "", fmt.Errorf("create request: %w", err)
 	}
 
+	req.Header.Set("User-Agent", defaultUserAgent)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	resp, err := u.client.Do(req)

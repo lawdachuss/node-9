@@ -80,6 +80,7 @@ type Config struct {
 
         OutputDir      string
         PerModelFolder bool
+        DeleteLocalAfterUpload bool
 
         TurboViPlayAPIKey string
         VoeSXAPIKey       string

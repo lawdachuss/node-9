@@ -50,6 +50,16 @@ func (ch *Channel) Monitor() {
 				} else {
 					ch.Info("channel is %s, try again in %d min(s)", ch.RoomStatus, server.Config.Interval)
 				}
+
+				// If the channel went offline while we have an active file, finalize
+				// it so post-processing (thumbnail, upload, DB save, deletion) can run.
+				if errors.Is(err, internal.ErrChannelOffline) && ch.File != nil {
+					go func() {
+						if cerr := ch.Cleanup(); cerr != nil {
+							ch.Error("cleanup on offline: %s", cerr.Error())
+						}
+					}()
+				}
 			} else if errors.Is(err, context.Canceled) {
 				cfBlockCount = 0
 			} else {

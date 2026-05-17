@@ -96,7 +96,12 @@ func (u *StreamtapeUploader) Upload(filePath string) (string, error) {
 func (u *StreamtapeUploader) getUploadURL() (string, error) {
 	url := fmt.Sprintf("%s/file/ul?login=%s&key=%s", streamtapeAPIBase, u.login, u.apiKey)
 	
-	resp, err := u.client.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("User-Agent", defaultUserAgent)
+	resp, err := u.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request upload URL: %w", err)
 	}
@@ -162,7 +167,7 @@ func (u *StreamtapeUploader) uploadFile(filePath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
-
+	req.Header.Set("User-Agent", defaultUserAgent)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.ContentLength = int64(body.Len()) // Set exact content length
 

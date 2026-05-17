@@ -103,8 +103,8 @@ flowchart LR
 2. Builds and runs **chaturbate-dvr**, **cookie-refresher**, and **uploader**  
 3. Exposes the dashboard on a **trycloudflare.com** URL (saved to Supabase)  
 4. Records for **1–5 hours** (configurable), with health checks and auto-restart  
-5. Commits **`database/recordings.json`** back to the repo (upload links & thumbnails)  
-6. Uploads an **emergency backup** artifact of any captured videos  
+5. Stores upload metadata in Supabase instead of committing `database/recordings.json`  
+6. Uploads an **emergency backup** artifact of any captured videos
 7. Can **queue the next run** for continuous operation  
 
 Workflow file: [`.github/workflows/recorder.yml`](https://github.com/vasud3v/chaturbate-recorder/blob/main/.github/workflows/recorder.yml)
@@ -151,7 +151,7 @@ Workflow file: [`.github/workflows/recorder.yml`](https://github.com/vasud3v/cha
 
 5. Open the **run summary** for the public Web UI link, or query Supabase `tunnel_sessions` / `heartbeats`.
 
-> **Limits:** GitHub-hosted runners have disk and time caps (~5 h max per run in this workflow). Videos are not persisted on GitHub long-term — use upload hosts and `database/recordings.json` for links.
+> **Limits:** GitHub-hosted runners have disk and time caps (~5 h max per run in this workflow). Videos are not persisted on GitHub long-term — use upload hosts and Supabase for links and metadata.
 
 ---
 
@@ -274,7 +274,7 @@ Log in on Chaturbate, copy the `sessionid` cookie, and pass:
 
 ## Uploads & library
 
-After each recording, the app can upload to multiple hosts in parallel and store links in **`database/recordings.json`** (committed by GitHub Actions).
+After each recording, the app can upload to multiple hosts in parallel and store links in Supabase as the primary metadata store.
 
 | Host | Env variables |
 |------|----------------|
@@ -304,7 +304,7 @@ Browse recordings in the Web UI under **Videos**.
 ├── docker-compose.yml      # Production stack
 ├── .github/workflows/      # 24/7 Recorder (GitHub Actions)
 ├── conf/channels.json      # Your channels (committed)
-└── database/recordings.json # Upload metadata (committed)
+└── database/recordings.json # Legacy local fallback file
 ```
 
 ---
@@ -347,9 +347,9 @@ net start winnat
 </details>
 
 <details>
-<summary><b>GitHub Actions: database not updating</b></summary>
+<summary><b>GitHub Actions: recording metadata not available</b></summary>
 
-Ensure workflow permissions allow **Read and write** for `GITHUB_TOKEN`. The workflow commits `database/recordings.json` with `[skip ci]` to avoid loops.
+Ensure workflow permissions allow **Read and write** for `GITHUB_TOKEN`. Recording metadata is now stored in Supabase, so `database/recordings.json` is no longer committed by the workflow.
 
 </details>
 

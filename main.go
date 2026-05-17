@@ -121,6 +121,12 @@ func main() {
                                 EnvVars: []string{"PER_MODEL_FOLDER"},
                                 Value:   false,
                         },
+                        &cli.BoolFlag{
+                                Name:    "delete-local-after-upload",
+                                Usage:   "Delete local recordings and preview files after successful remote upload",
+                                EnvVars: []string{"DELETE_LOCAL_AFTER_UPLOAD"},
+                                Value:   false,
+                        },
                         &cli.StringFlag{
                                 Name:    "turboviplay-api-key",
                                 Usage:   "API key for TurboViPlay uploads",

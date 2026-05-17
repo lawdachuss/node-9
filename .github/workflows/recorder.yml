@@ -294,29 +294,6 @@ jobs:
           echo "Emergency backup contents:"
           find emergency-backup -maxdepth 2 -type f -printf '%p\n' | head -100 || true
 
-      - name: Save recordings database
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [[ ! -f database/recordings.json ]]; then
-            echo "database/recordings.json was not created."
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f database/recordings.json
-
-          if git diff --staged --quiet; then
-            echo "No recordings database changes to commit."
-            exit 0
-          fi
-
-          git commit -m "Update recordings database [skip ci]"
-          git push origin "HEAD:${{ github.ref_name }}"
-
       - name: Upload emergency artifact
         if: always()
         uses: actions/upload-artifact@v4

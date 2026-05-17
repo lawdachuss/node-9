@@ -289,11 +289,27 @@ type recEntryShape struct {
 	Filesize     int64             `json:"filesize"`
 }
 
-// SaveRecordingsToDB syncs the recordings JSON blob to the video_uploads table.
+func SaveRecordingsJSONToDB(data []byte) error {
+	if supabaseClient == nil {
+		return nil
+	}
+	row := supabaseSetting{Key: "recordings_db", Value: json.RawMessage(data)}
+	if err := supabaseClient.upsert("app_settings", row); err != nil {
+		return fmt.Errorf("save recordings json: %w", err)
+	}
+	return nil
+}
+
+// SaveRecordingsToDB syncs the recordings JSON blob to Supabase and preserves
+// partial upload links in the video_uploads table for compatibility.
 func SaveRecordingsToDB(data []byte) error {
 	if supabaseClient == nil {
 		return nil
 	}
+	if err := SaveRecordingsJSONToDB(data); err != nil {
+		return err
+	}
+
 	var db recDBShape
 	if err := json.Unmarshal(data, &db); err != nil {
 		return fmt.Errorf("parse recordings json: %w", err)
@@ -322,9 +338,6 @@ func SaveRecordingsToDB(data []byte) error {
 				row.StreamtapeLink = l
 			}
 
-			// Upsert by filename — delete existing row first then insert
-			// (Supabase upsert on non-primary key requires a unique constraint;
-			//  filename is not unique by default so we use a simple delete+insert)
 			supabaseClient.delete("video_uploads", "filename=eq."+rec.Filename)
 			if err := supabaseClient.upsert("video_uploads", row); err != nil {
 				fmt.Printf("[WARN] [db] save recording %s: %v\n", rec.Filename, err)
@@ -334,11 +347,30 @@ func SaveRecordingsToDB(data []byte) error {
 	return nil
 }
 
+func LoadRecordingsJSONFromDB() []byte {
+	if supabaseClient == nil {
+		return nil
+	}
+	data, err := supabaseClient.get("app_settings", "select=value&key=eq.recordings_db&limit=1")
+	if err != nil {
+		fmt.Printf("[WARN] [db] load recordings json: %v\n", err)
+		return nil
+	}
+	var rows []supabaseSetting
+	if err := json.Unmarshal(data, &rows); err != nil || len(rows) == 0 {
+		return nil
+	}
+	return []byte(rows[0].Value)
+}
+
 // LoadRecordingsFromDB fetches video_uploads rows and converts them back to
 // the recordings JSON format used by the app.
 func LoadRecordingsFromDB() []byte {
 	if supabaseClient == nil {
 		return nil
+	}
+	if data := LoadRecordingsJSONFromDB(); data != nil {
+		return data
 	}
 	data, err := supabaseClient.get("video_uploads",
 		"select=streamer_name,filename,gofile_link,turboviplay_link,voesx_link,streamtape_link,thumbnail_link,upload_date&order=upload_date.desc")

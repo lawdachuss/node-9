@@ -88,7 +88,12 @@ func (u *SendCMUploader) getUploadServer() (string, error) {
 		url = fmt.Sprintf("%s/upload/server", sendcmAPIBase)
 	}
 
-	resp, err := u.client.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("User-Agent", defaultUserAgent)
+	resp, err := u.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request upload server: %w", err)
 	}

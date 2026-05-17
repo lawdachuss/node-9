@@ -46,6 +46,8 @@ func NewMultiHostUploader(turboViPlayAPIKey, voeSXAPIKey, streamtapeLogin, strea
 	}
 }
 
+const defaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+
 // nilLogger discards all log messages when no logger is provided.
 type nilLogger struct{}
 
