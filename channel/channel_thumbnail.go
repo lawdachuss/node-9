@@ -16,8 +16,8 @@ import (
 )
 
 const numSpriteFrames = 10
-const spriteFrameWidth = 960
-const spriteFrameHeight = 540
+const spriteFrameWidth = 640
+const spriteFrameHeight = 360
 
 // generateThumbnail is the channel-scoped wrapper — logs go to the channel log.
 func (ch *Channel) generateThumbnail(videoPath string) {
