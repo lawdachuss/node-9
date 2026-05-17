@@ -120,7 +120,7 @@ func GetFreshCookiesViaFlareSolverr(ctx context.Context, url string) (string, st
         reqBody := flareSolverrRequest{
                 Cmd:        "request.get",
                 URL:        url,
-                MaxTimeout: 180000, // 180 seconds (180000ms) for Cloudflare 2026 challenges
+                MaxTimeout: 300000, // 300 seconds for Cloudflare 2026 challenges; must be < nginx proxy_read_timeout
                 Session:    sessionID,
         }
 

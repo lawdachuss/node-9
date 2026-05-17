@@ -82,7 +82,7 @@ func (m *Manager) StartCookieRefresher() {
 
 // refreshCookiesOnce returns true when cookies were successfully refreshed.
 func (m *Manager) refreshCookiesOnce() bool {
-        ctx, cancel := context.WithTimeout(context.Background(), 250*time.Second)
+        ctx, cancel := context.WithTimeout(context.Background(), 330*time.Second)
         defer cancel()
 
         fmt.Println(" INFO [cookie-refresher] fetching fresh cookies from Byparr...")

@@ -131,43 +131,33 @@ jobs:
           echo "Running services:"
           docker compose ps
 
-          echo "Waiting for Cloudflare cookies (via refresher or channel's own Byparr fallback)..."
+          echo "Warming up Cloudflare cookie refresh (non-blocking)..."
+          wait_start_epoch="$(date +%s)"
           cookies_ok=false
-          progress_check_interval=12
-          for attempt in {1..120}; do
+          for attempt in {1..36}; do
             logs="$(docker compose logs chaturbate-dvr 2>/dev/null)"
-            # Cookie refresher success
             if echo "$logs" | grep -q 'refreshed and saved'; then
               echo "Cloudflare cookies applied by background refresher"
               cookies_ok=true
               break
             fi
-            # Channel's own FlareSolverr fallback success
             if echo "$logs" | grep -q 'FlareSolverr/Byparr obtained stream info'; then
               echo "Cloudflare cookies obtained via channel recording fallback"
               cookies_ok=true
               break
             fi
-            # Periodically show progress
-            if (( attempt % progress_check_interval == 1 )); then
-              cookie_logs="$(echo "$logs" | grep -E '\[cookie-refresher\]|FlareSolverr|cf_clearance' | tail -3 || true)"
-              if [[ -n "$cookie_logs" ]]; then
-                echo "  Recent cookie-related activity:"
-                echo "$cookie_logs"
-              fi
-              echo "  Byparr LB health: $(curl -sS --max-time 3 http://localhost:8191/backend-health 2>/dev/null || echo 'unreachable')"
-              echo "  Byparr LB nginx logs:"
-              docker compose logs --tail=5 byparr-lb 2>/dev/null || true
+            # Show brief progress every 12 attempts
+            if (( attempt % 12 == 1 )); then
+              echo "  [cookie wait ${attempt}s] still waiting for Cloudflare challenge..."
             fi
             sleep 5
           done
 
-          if [[ "$cookies_ok" != "true" ]]; then
-            echo "Cookies were not obtained in time (waited 10 minutes)"
-            echo "  Note: Byparr's request.get may still be in progress solving Cloudflare"
-            docker compose logs --tail=120 chaturbate-dvr
-            docker compose logs --tail=30 byparr byparr-lb 2>/dev/null || true
-            exit 1
+          if [[ "$cookies_ok" == "true" ]]; then
+            echo "Proceeding with cookies."
+          else
+            echo "Proceeding without cookies — background refresher still trying."
+            echo "  (recording channels may fail and retry when cookies arrive)"
           fi
 
       - name: Wait for web UI
