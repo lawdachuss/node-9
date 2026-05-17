@@ -43,27 +43,21 @@ func New() (*Manager, error) {
 
 // SaveConfig saves the current channels to channels.json and to PostgreSQL.
 func (m *Manager) SaveConfig() error {
-        var config []*entity.ChannelConfig
+	var config []*entity.ChannelConfig
 
-        m.Channels.Range(func(key, value any) bool {
-                config = append(config, value.(*channel.Channel).Config)
-                return true
-        })
+	m.Channels.Range(func(key, value any) bool {
+		config = append(config, value.(*channel.Channel).Config)
+		return true
+	})
 
-        b, err := json.MarshalIndent(config, "", "  ")
-        if err != nil {
-                return fmt.Errorf("marshal: %w", err)
-        }
-        if err := os.MkdirAll("./conf", 0777); err != nil {
-                return fmt.Errorf("mkdir all conf: %w", err)
-        }
-        if err := os.WriteFile("./conf/channels.json", b, 0777); err != nil {
-                return fmt.Errorf("write file: %w", err)
-        }
-        if err := server.SaveChannelsToDB(b); err != nil {
-                fmt.Printf("[WARN] [db] could not save channels to database: %v\n", err)
-        }
-        return nil
+	b, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	if err := server.SaveChannelsToDB(b); err != nil {
+		return fmt.Errorf("save channels to database: %w", err)
+	}
+	return nil
 }
 
 // StartCookieRefresher launches a background goroutine that replicates the
@@ -112,30 +106,21 @@ func (m *Manager) refreshCookiesOnce() {
 // LoadConfig loads the channels from JSON (or PostgreSQL fallback) and starts them.
 // All channels are automatically resumed on startup, regardless of their paused state.
 func (m *Manager) LoadConfig() error {
-        // Restore persisted cookies/user-agent before starting channels
-        if err := server.LoadSettings(); err != nil {
-                fmt.Printf("[WARN] could not load settings: %v\n", err)
-        } else if server.Config.Cookies != "" {
-                fmt.Println(" INFO loaded persisted cookies from conf/settings.json")
-        }
+	// Restore persisted cookies/user-agent before starting channels
+	if err := server.LoadSettings(); err != nil {
+		fmt.Printf("[WARN] could not load settings: %v\n", err)
+	}
 
-        // Connect to database (non-fatal if unavailable)
-        if err := server.InitDB(); err != nil {
-                fmt.Printf("[WARN] [db] could not connect to database: %v\n", err)
-        }
+	// Connect to database (non-fatal if unavailable)
+	if err := server.InitDB(); err != nil {
+		fmt.Printf("[WARN] [db] could not connect to database: %v\n", err)
+	}
 
-        b, err := os.ReadFile("./conf/channels.json")
-        if os.IsNotExist(err) {
-                // Fall back to database when file is missing (e.g. fresh GitHub Actions run)
-                if dbData := server.LoadChannelsFromDB(); dbData != nil {
-                        fmt.Println(" INFO [db] loaded channels from PostgreSQL (file not found)")
-                        b = dbData
-                } else {
-                        return nil
-                }
-        } else if err != nil {
-                return fmt.Errorf("read file: %w", err)
-        }
+	// Load channels from Supabase
+	b := server.LoadChannelsFromDB()
+	if b == nil {
+		return nil
+	}
 
         var config []*entity.ChannelConfig
         if err := json.Unmarshal(b, &config); err != nil {

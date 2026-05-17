@@ -84,11 +84,14 @@ func GetFreshCookiesViaFlareSolverr(ctx context.Context, url string) (string, st
         // Create a unique session for this request to avoid conflicts
         sessionID := fmt.Sprintf("session_%d", time.Now().UnixNano())
 
-        // First, create a session
-        createSessionReq := flareSolverrRequest{
-                Cmd:     "sessions.create",
-                Session: sessionID,
-        }
+	// First, create a session
+	// Note: must include a dummy URL because Byparr middleware validates all requests against
+	// a LinkRequest model requiring url to match ^https?://
+	createSessionReq := flareSolverrRequest{
+		Cmd:     "sessions.create",
+		URL:     "https://chaturbate.com",
+		Session: sessionID,
+	}
 
         jsonData, err := json.Marshal(createSessionReq)
         if err != nil {

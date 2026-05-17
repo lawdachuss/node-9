@@ -11,7 +11,7 @@ while true; do
   RESPONSE=$(curl -sS --fail --retry 3 --retry-all-errors --retry-delay 5 --max-time 240 -X POST http://byparr-lb/v1 \
     -H 'Content-Type: application/json' \
     -d '{"cmd":"request.get","url":"https://chaturbate.com","maxTimeout":180000}')
-  CF_COOKIE=$(echo "$RESPONSE" | jq -r '.solution.cookies[] | select(.name=="cf_clearance" or .name=="csrftoken") | .name + "=" + .value' 2>/dev/null | paste -sd '; ' -)
+  CF_COOKIE=$(echo "$RESPONSE" | jq -r '.solution.cookies[] | select(.name=="cf_clearance" or .name=="csrftoken") | .name + "=" + .value' 2>/dev/null | paste -sd ';' -)
   CF_USER_AGENT=$(echo "$RESPONSE" | jq -r '.solution.userAgent // empty' 2>/dev/null)
   if [ -n "$CF_COOKIE" ]; then
     echo "[COOKIE] Refreshed cookies (cf_clearance + csrftoken when present)"

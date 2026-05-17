@@ -1,0 +1,24 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install curl for healthcheck
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Playwright with Chromium and all system dependencies
+RUN pip install --no-cache-dir playwright \
+    && playwright install --with-deps chromium
+
+# Copy the byparr-lite server
+COPY byparr_lite.py .
+
+EXPOSE 8191
+
+ENV PORT=8191
+
+HEALTHCHECK --interval=20s --timeout=8s --retries=3 --start-period=60s \
+    CMD curl -f http://localhost:8191/ || exit 1
+
+CMD ["python", "byparr_lite.py"]

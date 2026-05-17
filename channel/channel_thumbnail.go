@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/teacat/chaturbate-dvr/uploader"
 )
 
 const numSpriteFrames = 10
@@ -54,8 +56,8 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 			"-y", "-i", videoPath,
 			"-ss", "00:00:05",
 			"-vframes", "1",
-			"-s", "320x180",
-			"-q:v", "3",
+			"-s", "640x360",
+			"-q:v", "2",
 			thumbJPG,
 		).Run()
 		cancel()
@@ -63,11 +65,21 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 		if err != nil {
 			info("thumb: frame extract failed for %s: %v", baseName, err)
 		} else if _, statErr := os.Stat(thumbJPG); statErr == nil {
-			localURL := "/thumb?path=" + videoPath
-			if writeErr := os.WriteFile(thumbSidecar, []byte(localURL), 0644); writeErr == nil {
-				info("thumb: saved thumbnail for %s", baseName)
+			imgUploader := uploader.NewMultiImageUploader()
+			if remoteURL, _, uploadErr := imgUploader.Upload(thumbJPG); uploadErr == nil {
+				if writeErr := os.WriteFile(thumbSidecar, []byte(remoteURL), 0644); writeErr == nil {
+					info("thumb: uploaded thumbnail for %s to remote host", baseName)
+				} else {
+					errFn("thumb: could not write sidecar for %s: %v", baseName, writeErr)
+				}
 			} else {
-				errFn("thumb: could not write sidecar for %s: %v", baseName, writeErr)
+				info("thumb: remote upload failed for %s, using local fallback: %v", baseName, uploadErr)
+				localURL := "/thumb?path=" + videoPath
+				if writeErr := os.WriteFile(thumbSidecar, []byte(localURL), 0644); writeErr == nil {
+					info("thumb: saved local thumbnail for %s", baseName)
+				} else {
+					errFn("thumb: could not write sidecar for %s: %v", baseName, writeErr)
+				}
 			}
 			// If configured to delete local files after upload, push the
 			// thumbnail to a remote image host and write the remote URL
@@ -128,9 +140,9 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 				"-ss", fmt.Sprintf("%.1f", seek),
 				"-i", videoPath,
 				"-vframes", "1",
-				"-s", "320x180",
-				"-q:v", "3",
-				framePath,
+		"-s", "640x360",
+			"-q:v", "2",
+			framePath,
 			).CombinedOutput(); e != nil {
 				info("thumb: sprite frame %d/%d failed for %s: %v", i+1, numSpriteFrames, baseName, e)
 				if len(out) > 0 {
@@ -168,11 +180,21 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 					info("thumb: ffmpeg output: %s", msg)
 				}
 			} else if _, e := os.Stat(spriteJPG); e == nil {
-				localURL := "/sprite?path=" + videoPath
-				if writeErr := os.WriteFile(spriteSidecar, []byte(localURL), 0644); writeErr == nil {
-					info("thumb: saved sprite for %s", baseName)
+				imgUploader := uploader.NewMultiImageUploader()
+				if remoteURL, _, uploadErr := imgUploader.Upload(spriteJPG); uploadErr == nil {
+					if writeErr := os.WriteFile(spriteSidecar, []byte(remoteURL), 0644); writeErr == nil {
+						info("thumb: uploaded sprite for %s to remote host", baseName)
+					} else {
+						errFn("thumb: could not write sprite sidecar for %s: %v", baseName, writeErr)
+					}
 				} else {
-					errFn("thumb: could not write sprite sidecar for %s: %v", baseName, writeErr)
+					info("thumb: remote sprite upload failed for %s, using local fallback: %v", baseName, uploadErr)
+					localURL := "/sprite?path=" + videoPath
+					if writeErr := os.WriteFile(spriteSidecar, []byte(localURL), 0644); writeErr == nil {
+						info("thumb: saved local sprite for %s", baseName)
+					} else {
+						errFn("thumb: could not write sprite sidecar for %s: %v", baseName, writeErr)
+					}
 				}
 				if server.Config != nil && server.Config.DeleteLocalAfterUpload {
 					imgUploader := uploader.NewMultiImageUploader()

@@ -15,7 +15,6 @@ Supported commands (FlareSolverr protocol):
 import json
 import os
 import shutil
-import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock
@@ -23,32 +22,34 @@ from urllib.parse import urlparse
 
 CHROMIUM_LOCK = Lock()
 
-# Use the nix system Chromium which has all its dependencies bundled.
-# Playwright's bundled headless shell requires extra system libs not available here.
+# Prefer system-installed Chromium (Replit/nix), fall back to Playwright's
+# bundled browser (Docker/GitHub Actions).
 SYSTEM_CHROMIUM = shutil.which("chromium") or shutil.which("chromium-browser")
+
+
+def _launch_browser(p, max_timeout_ms: int):
+    """Launch Chromium, using system binary if available, else Playwright's bundled one."""
+    launch_kwargs = {
+        "headless": True,
+        "args": [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+        ],
+    }
+    if SYSTEM_CHROMIUM:
+        launch_kwargs["executable_path"] = SYSTEM_CHROMIUM
+    return p.chromium.launch(**launch_kwargs)
 
 
 def solve_cloudflare(url: str, max_timeout_ms: int = 180000) -> tuple:
     from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
-    if not SYSTEM_CHROMIUM:
-        raise RuntimeError(
-            "chromium not found in PATH — ensure nix 'chromium' package is installed"
-        )
-
     deadline = time.time() + (max_timeout_ms / 1000)
     with CHROMIUM_LOCK:
         with sync_playwright() as p:
-            browser = p.chromium.launch(
-                executable_path=SYSTEM_CHROMIUM,
-                headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                ],
-            )
+            browser = _launch_browser(p, max_timeout_ms)
             context = browser.new_context(
                 user_agent=(
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -177,10 +178,9 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8191))
     if SYSTEM_CHROMIUM:
-        print(f"[byparr-lite] Using Chromium: {SYSTEM_CHROMIUM}", flush=True)
+        print(f"[byparr-lite] Using system Chromium: {SYSTEM_CHROMIUM}", flush=True)
     else:
-        print("[byparr-lite] WARNING: chromium not found in PATH", flush=True)
-        sys.exit(1)
+        print("[byparr-lite] No system Chromium found — using Playwright's bundled browser", flush=True)
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
     print(f"[byparr-lite] Listening on :{port}", flush=True)
     try:

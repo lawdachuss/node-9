@@ -687,6 +687,41 @@ func serveLocalImage(c *gin.Context, suffix string) {
         c.File(abs)
 }
 
+// ─── Tunnel API ──────────────────────────────────────────────────────────────
+
+type tunnelRequest struct {
+	URL   string `json:"url" form:"url"`
+	RunID int    `json:"run_id" form:"run_id"`
+}
+
+// UpdateTunnel saves a tunnel URL to Supabase.
+func UpdateTunnel(c *gin.Context) {
+	var req tunnelRequest
+	if err := c.ShouldBind(&req); err != nil {
+		c.AbortWithError(http.StatusBadRequest, fmt.Errorf("bind: %w", err))
+		return
+	}
+	if req.URL == "" {
+		c.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+	if err := server.SaveTunnelToDB(req.URL, req.RunID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// GetTunnel returns the current active tunnel URL.
+func GetTunnel(c *gin.Context) {
+	url, err := server.LoadCurrentTunnel()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"url": url})
+}
+
 func extractFileCode(link string) string {
         parts := strings.Split(strings.TrimRight(link, "/"), "/")
         if len(parts) > 0 {

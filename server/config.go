@@ -3,14 +3,11 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/teacat/chaturbate-dvr/entity"
 )
 
 var Config *entity.Config
-
-const settingsPath = "./conf/settings.json"
 
 type persistedSettings struct {
 	Cookies   string `json:"cookies"`
@@ -18,7 +15,7 @@ type persistedSettings struct {
 	ByparrURL string `json:"byparr_url"`
 }
 
-// SaveSettings writes the runtime cookies and user-agent to disk AND to Supabase.
+// SaveSettings writes the runtime cookies and user-agent to Supabase.
 func SaveSettings() error {
 	s := persistedSettings{
 		Cookies:   Config.Cookies,
@@ -29,38 +26,14 @@ func SaveSettings() error {
 	if err != nil {
 		return fmt.Errorf("marshal settings: %w", err)
 	}
-
-	// Save to Supabase
-	if err := SaveSettingsToDB(b); err != nil {
-		fmt.Printf("[WARN] [db] could not save settings to Supabase: %v\n", err)
-	}
-
-	// Also save to local file as backup
-	if mkErr := os.MkdirAll("./conf", 0777); mkErr == nil {
-		os.WriteFile(settingsPath, b, 0666)
-	}
-
-	return nil
+	return SaveSettingsToDB(b)
 }
 
-// LoadSettings reads persisted cookies and user-agent from Supabase (or local file fallback).
+// LoadSettings reads persisted cookies and user-agent from Supabase.
 func LoadSettings() error {
-	var b []byte
-
-	// Try Supabase first
-	if dbData := LoadSettingsFromDB(); dbData != nil {
-		fmt.Println(" INFO [db] loaded settings from Supabase")
-		b = dbData
-	} else {
-		// Fall back to local file
-		data, err := os.ReadFile(settingsPath)
-		if os.IsNotExist(err) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("read settings: %w", err)
-		}
-		b = data
+	b := LoadSettingsFromDB()
+	if b == nil {
+		return nil
 	}
 
 	var s persistedSettings

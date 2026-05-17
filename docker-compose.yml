@@ -1,32 +1,29 @@
 ﻿services:
   # Byparr - Scalable Cloudflare bypass service
   byparr:
-    image: ghcr.io/thephaseless/byparr:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.byparr
+    image: byparr-lite:latest
     environment:
-      - HOST=0.0.0.0
       - PORT=8191
-      - PROXY_SERVER=${PROXY_SERVER:-}
-      - PROXY_USERNAME=${PROXY_USERNAME:-}
-      - PROXY_PASSWORD=${PROXY_PASSWORD:-}
-      - TIMEOUT=300
-      - LOG_LEVEL=INFO
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8191/"]
       interval: 20s
       timeout: 8s
       retries: 3
-      start_period: 60s
+      start_period: 30s
     networks:
       - recorder-network
     deploy:
       replicas: 2
       resources:
         limits:
-          memory: 1.5G
+          memory: 1G
         reservations:
-          cpus: '0.5'
-          memory: 500M
+          cpus: '0.25'
+          memory: 256M
 
   # Nginx load balancer for Byparr instances
   byparr-lb:
@@ -53,8 +50,12 @@
     build: .
     container_name: chaturbate-dvr
     command: ["--port", "8080", "--compress=false"]
+    env_file:
+      - .env
     environment:
       - FLARESOLVERR_URL=http://byparr-lb/v1
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_API_KEY=${SUPABASE_API_KEY:-}
       - VOESX_API_KEY=${VOESX_API_KEY:-}
       - STREAMTAPE_LOGIN=${STREAMTAPE_LOGIN:-}
       - STREAMTAPE_API_KEY=${STREAMTAPE_API_KEY:-}
@@ -85,22 +86,6 @@
         reservations:
           cpus: '0.2'
           memory: 200M
-
-  # Cookie Refresher - Auto refresh Cloudflare clearance via Byparr
-  cookie-refresher:
-    image: alpine:3
-    container_name: cookie-refresher
-    volumes:
-      - ./scripts/cookie-refresher.sh:/cookie-refresher.sh:ro
-    command: ["sh", "/cookie-refresher.sh"]
-    depends_on:
-      byparr:
-        condition: service_started
-      chaturbate-dvr:
-        condition: service_started
-    networks:
-      - recorder-network
-    restart: unless-stopped
 
   # Uploader - Automatically upload recordings to GoFile, Streamtape, VoeSX, SendCM
   uploader:

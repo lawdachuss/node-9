@@ -62,10 +62,14 @@ func SetupViews(r *gin.Engine) {
         r.GET("/sprite", ServeSprite)
         r.POST("/delete_video", DeleteVideo)
         r.POST("/update_config", UpdateConfig)
-        r.POST("/create_channel", CreateChannel)
-        r.POST("/stop_channel/:username", StopChannel)
-        r.POST("/pause_channel/:username", PauseChannel)
-        r.POST("/resume_channel/:username", ResumeChannel)
+	r.POST("/create_channel", CreateChannel)
+	r.POST("/stop_channel/:username", StopChannel)
+	r.POST("/pause_channel/:username", PauseChannel)
+	r.POST("/resume_channel/:username", ResumeChannel)
+
+	// Tunnel API
+	r.GET("/api/tunnel", GetTunnel)
+	r.POST("/api/tunnel", UpdateTunnel)
 
 }
 
