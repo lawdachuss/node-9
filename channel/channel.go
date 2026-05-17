@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/teacat/chaturbate-dvr/chaturbate"
@@ -38,6 +39,7 @@ type Channel struct {
 	AudioInitSegment []byte // fMP4 audio init segment for LL-HLS streams
 	HasSeparateAudio bool
 	switchRequested  bool // set by HandleSegment, consumed by OnPollComplete
+	cleanupMu sync.Mutex // serialises Cleanup() calls from concurrent goroutines
 }
 
 // New creates a new channel instance with the given manager and configuration.

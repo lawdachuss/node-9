@@ -45,6 +45,9 @@ func (ch *Channel) NextFile() error {
 
 // Cleanup cleans the file and resets it, called when the stream errors out or before next file was created.
 func (ch *Channel) Cleanup() error {
+	ch.cleanupMu.Lock()
+	defer ch.cleanupMu.Unlock()
+
 	if ch.File == nil && ch.AudioFile == nil {
 		return nil
 	}
