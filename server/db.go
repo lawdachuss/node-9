@@ -77,12 +77,16 @@ func (s *supabaseREST) get(table, query string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-func (s *supabaseREST) upsert(table string, body interface{}) error {
+func (s *supabaseREST) upsert(table string, body interface{}, onConflict ...string) error {
 	b, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
-	req, _ := http.NewRequest("POST", s.url+"/rest/v1/"+table, bytes.NewReader(b))
+	url := s.url + "/rest/v1/" + table
+	if len(onConflict) > 0 && onConflict[0] != "" {
+		url += "?on_conflict=" + onConflict[0]
+	}
+	req, _ := http.NewRequest("POST", url, bytes.NewReader(b))
 	s.setHeaders(req)
 	req.Header.Set("Prefer", "resolution=merge-duplicates,return=minimal")
 	resp, err := s.http.Do(req)
@@ -168,7 +172,7 @@ func SaveChannelsToDB(data []byte) error {
 		return supabaseClient.delete("channels", "id=gte.0")
 	}
 
-	return supabaseClient.upsert("channels", rows)
+	return supabaseClient.upsert("channels", rows, "username")
 }
 
 // LoadChannelsFromDB fetches channels from Supabase and returns them as
@@ -225,7 +229,7 @@ func SaveSettingsToDB(data []byte) error {
 		return nil
 	}
 	row := supabaseSetting{Key: "dvr_settings", Value: json.RawMessage(data)}
-	if err := supabaseClient.upsert("app_settings", row); err != nil {
+	if err := supabaseClient.upsert("app_settings", row, "key"); err != nil {
 		// app_settings table may not exist — not fatal
 		fmt.Printf("[WARN] [db] save settings: %v\n", err)
 	}
@@ -294,7 +298,7 @@ func SaveRecordingsJSONToDB(data []byte) error {
 		return nil
 	}
 	row := supabaseSetting{Key: "recordings_db", Value: json.RawMessage(data)}
-	if err := supabaseClient.upsert("app_settings", row); err != nil {
+	if err := supabaseClient.upsert("app_settings", row, "key"); err != nil {
 		return fmt.Errorf("save recordings json: %w", err)
 	}
 	return nil
@@ -339,7 +343,7 @@ func SaveRecordingsToDB(data []byte) error {
 			}
 
 			supabaseClient.delete("video_uploads", "filename=eq."+rec.Filename)
-			if err := supabaseClient.upsert("video_uploads", row); err != nil {
+			if err := supabaseClient.upsert("video_uploads", row, "filename"); err != nil {
 				fmt.Printf("[WARN] [db] save recording %s: %v\n", rec.Filename, err)
 			}
 		}
@@ -433,7 +437,7 @@ func SaveTunnelToDB(url string, runID int) error {
 		return nil
 	}
 	row := supabaseTunnel{URL: url, RunID: runID}
-	return supabaseClient.upsert("tunnel_sessions", row)
+	return supabaseClient.upsert("tunnel_sessions", row, "run_id")
 }
 
 func LoadCurrentTunnel() (string, error) {
