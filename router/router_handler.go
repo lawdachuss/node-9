@@ -133,7 +133,7 @@ type UpdateConfigRequest struct {
         ByparrURL string `json:"byparr_url" form:"byparr_url"`
 }
 
-// UpdateConfig updates the server configuration (form from Web UI or JSON from cookie-refresher).
+// UpdateConfig updates the server configuration from the Web UI form or API POST.
 func UpdateConfig(c *gin.Context) {
 	var req UpdateConfigRequest
 	if err := c.ShouldBind(&req); err != nil {

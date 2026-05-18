@@ -157,42 +157,11 @@ jobs:
             sleep 4
           done
 
-          echo "Starting cookie-refresher (no chaturbate-dvr dependency)..."
-          docker compose up -d cookie-refresher
-
           echo "Starting chaturbate-dvr and uploader..."
           docker compose up -d --build chaturbate-dvr uploader
 
           echo "=== Full container status ==="
           docker compose ps -a
-
-      - name: Wait for Cloudflare cookies
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "Waiting for cookie-refresher to push initial Cloudflare cookies..."
-          cookies_ok=false
-          for attempt in {1..150}; do
-            if docker compose logs cookie-refresher 2>/dev/null | grep -q 'Pushed to chaturbate-dvr (ok)'; then
-              echo "Cloudflare cookies applied by cookie-refresher"
-              cookies_ok=true
-              break
-            fi
-            if (( attempt % 10 == 1 )); then
-              elapsed=$(( (attempt - 1) * 3 ))
-              last_log="$(docker compose logs --tail=3 cookie-refresher 2>/dev/null | grep -oP '\[COOKIE\].*' | tail -1 || echo 'no log yet')"
-              echo "  [${elapsed}s] cookie-refresher: ${last_log}"
-            fi
-            sleep 3
-          done
-
-          if [[ "$cookies_ok" == "true" ]]; then
-            echo "Proceeding with cookies."
-          else
-            echo "Proceeding without cookies — background refresher still trying."
-            echo "  (recording channels may fail and retry when cookies arrive)"
-          fi
 
       - name: Wait for web UI
         shell: bash

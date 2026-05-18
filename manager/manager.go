@@ -60,11 +60,10 @@ func (m *Manager) SaveConfig() error {
 	return nil
 }
 
-// StartCookieRefresher launches a background goroutine that replicates the
-// docker-compose cookie-refresher service: it calls Byparr/FlareSolverr to
-// obtain fresh cf_clearance cookies and pushes them into the running config
-// automatically. On success it sleeps 30 minutes; on failure it retries
-// after 30 seconds so CI doesn't starve waiting for the next attempt.
+// StartCookieRefresher launches a background goroutine that calls
+// Byparr/FlareSolverr periodically to obtain fresh cf_clearance cookies
+// and pushes them into the running config automatically.
+// On success it sleeps 30 minutes; on failure it retries after 15 seconds.
 func (m *Manager) StartCookieRefresher() {
         go func() {
                 // Short delay so the rest of the app finishes initialising first.

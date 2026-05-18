@@ -89,20 +89,6 @@
           cpus: '0.2'
           memory: 200M
 
-  # Cookie Refresher - Auto refresh Cloudflare clearance via Byparr
-  cookie-refresher:
-    image: alpine:3
-    container_name: cookie-refresher
-    volumes:
-      - ./scripts/cookie-refresher.sh:/cookie-refresher.sh:ro
-    command: ["sh", "/cookie-refresher.sh"]
-    depends_on:
-      byparr-lb:
-        condition: service_started
-    networks:
-      - recorder-network
-    restart: unless-stopped
-
   # Uploader - Automatically upload recordings to GoFile, Streamtape, VoeSX, SendCM
   uploader:
     image: python:3.12-alpine
