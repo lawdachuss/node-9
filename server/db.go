@@ -131,7 +131,7 @@ func loadJSONSetting(key string) []byte {
 
 // ─── Channels ─────────────────────────────────────────────────────────────────
 
-// SaveChannelsToDB saves channels to Supabase
+// SaveChannelsToDB saves channels to Supabase.
 func SaveChannelsToDB(data []byte) error {
         client := GetDBClient()
         if client == nil {
@@ -558,6 +558,16 @@ func DeleteChannelFromDB(username string) error {
                 return nil
         }
         return client.DeleteChannel(username)
+}
+
+// DeleteChannelsNotInDB removes all Supabase channel rows whose username is NOT
+// in the provided list. Pass an empty slice to delete all channels.
+func DeleteChannelsNotInDB(usernames []string) error {
+        client := GetDBClient()
+        if client == nil {
+                return nil
+        }
+        return client.DeleteChannelsNotIn(usernames)
 }
 
 // DeleteVideoCompletely removes all data associated with a video:
