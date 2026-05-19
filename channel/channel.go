@@ -28,6 +28,8 @@ type Channel struct {
 	PauseCancelFunc context.CancelFunc
 	LogCh           chan string
 	UpdateCh        chan bool
+	done            chan struct{} // closed when channel is torn down
+	closeDone       sync.Once    // ensures done is closed exactly once
 
 	IsOnline   bool
 	RoomStatus string // public, private, group, away, offline
@@ -35,6 +37,8 @@ type Channel struct {
 	Duration   float64 // Seconds
 	Filesize   int     // Bytes
 	Sequence   int
+
+	stateMu sync.Mutex // protects IsOnline, RoomStatus, Duration, Filesize
 
 	RoomTitle  string   // captured from API at recording start
 	Tags       []string // captured from API at recording start
@@ -63,6 +67,7 @@ func New(conf *entity.ChannelConfig) *Channel {
 	ch := &Channel{
 		LogCh:           make(chan string),
 		UpdateCh:        make(chan bool),
+		done:            make(chan struct{}),
 		Config:          conf,
 		CancelFunc:      func() {},
 		PauseCancelFunc: func() {},
@@ -88,6 +93,8 @@ func (ch *Channel) Publisher() {
 
 		case <-ch.UpdateCh:
 			server.Manager.Publish(entity.EventUpdate, ch.ExportInfo())
+		case <-ch.done:
+			return
 		}
 	}
 }
@@ -125,22 +132,29 @@ func (ch *Channel) ExportInfo() *entity.ChannelInfo {
 	if ch.StreamedAt != 0 {
 		streamedAt = time.Unix(ch.StreamedAt, 0).Format("2006-01-02 15:04 AM")
 	}
+	ch.stateMu.Lock()
+	isOnline := ch.IsOnline
+	roomStatus := ch.RoomStatus
+	duration := ch.Duration
+	filesize := ch.Filesize
+	ch.stateMu.Unlock()
+
 	ch.logsMu.Lock()
 	logsCopy := make([]string, len(ch.Logs))
 	copy(logsCopy, ch.Logs)
 	ch.logsMu.Unlock()
 
 	return &entity.ChannelInfo{
-		IsOnline:     ch.IsOnline,
-		IsPaused:     ch.Config.IsPaused,
-		RoomStatus:   ch.RoomStatus,
+		IsOnline:     isOnline,
+		IsPaused:     ch.Config.IsPaused.Load(),
+		RoomStatus:   roomStatus,
 		Username:     ch.Config.Username,
 		MaxDuration:  internal.FormatDuration(float64(ch.Config.MaxDuration * 60)),
 		MaxFilesize:  internal.FormatFilesize(ch.Config.MaxFilesize * 1024 * 1024),
 		StreamedAt:   streamedAt,
 		CreatedAt:    ch.Config.CreatedAt,
-		Duration:     internal.FormatDuration(ch.Duration),
-		Filesize:     internal.FormatFilesize(ch.Filesize),
+		Duration:     internal.FormatDuration(duration),
+		Filesize:     internal.FormatFilesize(filesize),
 		Filename:     filename,
 		Logs:         logsCopy,
 		GlobalConfig: server.Config,
@@ -153,7 +167,7 @@ func (ch *Channel) Pause() {
 	// `context.Canceled` → `ch.Monitor()` → `onRetry` → `ch.UpdateOnlineStatus(false)`.
 	ch.CancelFunc()
 
-	ch.Config.IsPaused = true
+	ch.Config.IsPaused.Store(true)
 	ch.Update()
 	ch.Info("channel paused")
 
@@ -174,6 +188,7 @@ func (ch *Channel) Pause() {
 func (ch *Channel) Stop() {
 	ch.CancelFunc()
 	ch.PauseCancelFunc()
+	ch.closeDone.Do(func() { close(ch.done) })
 	ch.Info("channel stopped")
 }
 
@@ -183,7 +198,7 @@ func (ch *Channel) Stop() {
 // It's only be used when program starting and trying to resume all channels at once.
 func (ch *Channel) Resume(startSeq int) {
 	ch.PauseCancelFunc()
-	ch.Config.IsPaused = false
+	ch.Config.IsPaused.Store(false)
 
 	ch.Update()
 	ch.Info("channel resumed")
@@ -194,7 +209,9 @@ func (ch *Channel) Resume(startSeq int) {
 
 // UpdateOnlineStatus updates the online status of the channel.
 func (ch *Channel) UpdateOnlineStatus(isOnline bool) {
+	ch.stateMu.Lock()
 	ch.IsOnline = isOnline
+	ch.stateMu.Unlock()
 	ch.Update()
 }
 
@@ -237,9 +254,14 @@ func (ch *Channel) CheckOnlineWhilePaused(ctx context.Context, startSeq int) {
 		} else if status != "" {
 			cfBlockCount = 0
 			isOnline := status != chaturbate.StatusAway && status != chaturbate.StatusOffline
-			if ch.IsOnline != isOnline || ch.RoomStatus != status {
+			ch.stateMu.Lock()
+			changed := ch.IsOnline != isOnline || ch.RoomStatus != status
+			if changed {
 				ch.IsOnline = isOnline
 				ch.RoomStatus = status
+			}
+			ch.stateMu.Unlock()
+			if changed {
 				ch.Info("channel status: %s (paused)", status)
 				ch.Update()
 			}

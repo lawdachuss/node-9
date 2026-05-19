@@ -69,8 +69,10 @@ func (ch *Channel) Cleanup(isRotation bool) error {
 		ch.File = nil
 		ch.AudioFile = nil
 		ch.CurrentFilename = ""
+		ch.stateMu.Lock()
 		ch.Filesize = 0
 		ch.Duration = 0
+		ch.stateMu.Unlock()
 
 		// Skip empty files (both tracks zero/missing).
 		if ch.HasSeparateAudio {
@@ -354,7 +356,9 @@ func (ch *Channel) CreateNewFile(filename string) error {
 		if err != nil {
 			return fmt.Errorf("write init segment: %w", err)
 		}
+		ch.stateMu.Lock()
 		ch.Filesize += n
+		ch.stateMu.Unlock()
 	}
 
 	if ch.HasSeparateAudio {

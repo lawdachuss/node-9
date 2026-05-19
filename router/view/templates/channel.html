@@ -37,28 +37,7 @@
             border-radius: 16px;
             overflow: hidden;
             cursor: pointer;
-            transition: all 0.35s cubic-bezier(0.16,1,0.3,1);
-            will-change: transform;
             position: relative;
-        }
-        .video-card::before {
-            content: '';
-            position: absolute;
-            inset: -1px;
-            border-radius: 17px;
-            background: linear-gradient(135deg, rgba(225,29,72,0), rgba(124,58,237,0));
-            z-index: -1;
-            transition: all 0.35s ease;
-            opacity: 0;
-        }
-        .video-card:hover {
-            transform: translateY(-6px) scale(1.015);
-            border-color: transparent;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 40px rgba(225,29,72,0.06);
-        }
-        .video-card:hover::before {
-            opacity: 1;
-            background: linear-gradient(135deg, rgba(225,29,72,0.2), rgba(124,58,237,0.15));
         }
 
         .card-thumb { position: relative; overflow: hidden; background: #0a0a0e; aspect-ratio: 16/9; }
@@ -67,29 +46,26 @@
             position: absolute; inset: 0;
             background: linear-gradient(to top, rgba(6,6,10,0.95) 0%, rgba(6,6,10,0.3) 35%, transparent 60%);
             pointer-events: none;
-            transition: opacity 0.5s ease;
+            z-index: 1;
         }
         .video-card:hover .card-thumb::after { opacity: 0; }
-        .card-thumb img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.7s cubic-bezier(0.16,1,0.3,1); }
-        .video-card:hover .card-thumb img { transform: scale(1.08); }
+        .card-thumb img { width: 100%; height: 100%; object-fit: cover; }
 
-        .sprite-overlay { position: absolute; inset: 0; overflow: hidden; opacity: 0; transition: opacity 0.4s ease; z-index: 2; }
+        .sprite-overlay { position: absolute; inset: 0; overflow: hidden; opacity: 0; z-index: 2; }
         .video-card:hover .sprite-overlay { opacity: 1; }
-        .sprite-slideshow { animation: sprite-scroll 8s steps(20) infinite; will-change: transform; }
-        @keyframes sprite-scroll { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+        .sprite-slideshow { width: 100%; height: 100%; }
 
         .play-btn-wrap {
             position: absolute; inset: 0;
             display: flex; align-items: center; justify-content: center;
-            opacity: 0; transition: opacity 0.3s ease; z-index: 3; pointer-events: none;
+            opacity: 0; z-index: 3; pointer-events: none;
         }
         .video-card:hover .play-btn-wrap { opacity: 1; }
         .play-btn {
-            width: 48px; height: 48px; border-radius: 50%;
+            width: 52px; height: 52px; border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
             background: rgba(255,255,255,0.1);
             border: 1px solid rgba(255,255,255,0.2);
-            backdrop-filter: blur(8px);
             box-shadow: 0 8px 32px rgba(0,0,0,0.4);
         }
         .play-btn svg { width: 20px; height: 20px; color: white; margin-left: 2px; }
@@ -102,8 +78,7 @@
         .badge {
             font-size: 9px; font-weight: 700; padding: 3px 8px;
             border-radius: 6px;
-            background: rgba(0,0,0,0.6);
-            backdrop-filter: blur(8px);
+            background: rgba(0,0,0,0.75);
             color: white;
             border: 1px solid rgba(255,255,255,0.08);
         }
@@ -128,7 +103,7 @@
             border: 1px solid rgba(16,185,129,0.15);
             transition: all 0.15s;
         }
-        .host-badge:hover { background: rgba(16,185,129,0.2); }
+        .host-badge:hover { background: rgba(16,185,129,0.2); transform: translateY(-1px); }
         .delete-btn {
             width: 28px; height: 28px;
             display: flex; align-items: center; justify-content: center;
@@ -193,7 +168,7 @@
                 {{ end }}
                 {{ if .SpriteURL }}
                 <div class="sprite-overlay">
-                    <div class="sprite-slideshow" style="width:2000%;height:100%;background-image:url('{{ .SpriteURL }}');background-size:100% 100%;background-repeat:no-repeat;"></div>
+                    <div class="sprite-slideshow" style="width:100%;height:100%;background-image:url('{{ .SpriteURL }}');background-size:cover;background-position:center;"></div>
                 </div>
                 {{ end }}
                 {{ if not .ThumbnailURL }}

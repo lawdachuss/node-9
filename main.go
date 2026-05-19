@@ -258,7 +258,6 @@ func start(c *cli.Context) error {
 
         // else create a channel with the provided username
         if err := server.Manager.CreateChannel(&entity.ChannelConfig{
-                IsPaused:    false,
                 Username:    c.String("username"),
                 Framerate:   c.Int("framerate"),
                 Resolution:  c.Int("resolution"),

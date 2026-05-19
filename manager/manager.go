@@ -134,9 +134,9 @@ func (m *Manager) LoadConfig() error {
 		m.Channels.Store(conf.Username, ch)
 
 		// Automatically resume all channels on startup
-		if ch.Config.IsPaused {
+		if ch.Config.IsPaused.Load() {
 			ch.Info("channel was paused, automatically resuming on startup")
-			ch.Config.IsPaused = false
+			ch.Config.IsPaused.Store(false)
 		}
 		go ch.Resume(seq)
 		seq++

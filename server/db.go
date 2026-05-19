@@ -145,7 +145,7 @@ func SaveChannelsToDB(data []byte) error {
 	for _, conf := range configs {
 		ch := &database.Channel{
 			Username:    conf.Username,
-			IsPaused:    conf.IsPaused,
+			IsPaused:    conf.IsPaused.Load(),
 			Framerate:   conf.Framerate,
 			Resolution:  conf.Resolution,
 			Pattern:     conf.Pattern,
@@ -180,7 +180,6 @@ func LoadChannelsFromDB() []byte {
 	for i, ch := range channels {
 		configs[i] = &entity.ChannelConfig{
 			Username:    ch.Username,
-			IsPaused:    ch.IsPaused,
 			Framerate:   ch.Framerate,
 			Resolution:  ch.Resolution,
 			Pattern:     ch.Pattern,
@@ -189,6 +188,7 @@ func LoadChannelsFromDB() []byte {
 			Compress:    ch.Compress,
 			CreatedAt:   ch.CreatedAt,
 		}
+		configs[i].IsPaused.Store(ch.IsPaused)
 	}
 
 	data, err := json.Marshal(configs)

@@ -579,7 +579,7 @@
             </a>
             {{ end }}
             {{ range $host, $link := .Links }}
-            <button onclick="embedHost('{{ $host }}')" class="host-link" style="border:none;cursor:pointer;font-family:inherit">
+            <button onclick="embedHost(this.dataset.host)" data-host="{{ $host }}" class="host-link" style="border:none;cursor:pointer;font-family:inherit">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                 {{ $host }}
             </button>
@@ -685,9 +685,10 @@
 
 </div><!-- /page-content -->
 
+<script type="application/json" id="host-players-data">{{ .HostPlayersJSON }}</script>
 <script>
 // ── Host players ──
-var hostPlayers = {{ .HostPlayersJSON }};
+var hostPlayers = JSON.parse(document.getElementById('host-players-data').textContent);
 
 function embedHost(hostName) {
     var player = hostPlayers.find(function(p) { return p.host === hostName; });

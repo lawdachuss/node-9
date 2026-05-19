@@ -3,6 +3,7 @@ package entity
 import (
         "regexp"
         "strings"
+        "sync/atomic"
 )
 
 // Event represents the type of event for the channel.
@@ -15,15 +16,15 @@ const (
 
 // ChannelConfig represents the configuration for a channel.
 type ChannelConfig struct {
-        IsPaused    bool   `json:"is_paused"`
-        Username    string `json:"username"`
-        Framerate   int    `json:"framerate"`
-        Resolution  int    `json:"resolution"`
-        Pattern     string `json:"pattern"`
-        MaxDuration int    `json:"max_duration"`
-        MaxFilesize int    `json:"max_filesize"`
-        Compress    bool   `json:"compress"`
-        CreatedAt   int64  `json:"created_at"`
+        IsPaused    atomic.Bool `json:"-"`
+        Username    string      `json:"username"`
+        Framerate   int         `json:"framerate"`
+        Resolution  int         `json:"resolution"`
+        Pattern     string      `json:"pattern"`
+        MaxDuration int         `json:"max_duration"`
+        MaxFilesize int         `json:"max_filesize"`
+        Compress    bool        `json:"compress"`
+        CreatedAt   int64       `json:"created_at"`
 }
 
 func (c *ChannelConfig) Sanitize() {

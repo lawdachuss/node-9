@@ -42,9 +42,11 @@ func (ch *Channel) Monitor() {
                                 ch.Info("blocked by Cloudflare (attempt %d); try with `-cookies` and `-user-agent`? try again in %d min(s)", cfBlockCount, delay)
                         } else if errors.Is(err, internal.ErrChannelOffline) || errors.Is(err, internal.ErrPrivateStream) {
                                 cfBlockCount = 0
+                                ch.stateMu.Lock()
                                 ch.RoomStatus = client.LastRoomStatus
+                                ch.stateMu.Unlock()
                                 ch.Update()
-                                if ch.RoomStatus == chaturbate.StatusPublic && errors.Is(err, internal.ErrChannelOffline) {
+                                if client.LastRoomStatus == chaturbate.StatusPublic && errors.Is(err, internal.ErrChannelOffline) {
                                         ch.Info("channel is live but stream URL unavailable (check Byparr/cookies); try again in %d min(s)", server.Config.Interval)
                                 } else {
                                         ch.Info("channel is %s, try again in %d min(s)", ch.RoomStatus, server.Config.Interval)
@@ -141,7 +143,9 @@ func (ch *Channel) RecordStream(ctx context.Context, client *chaturbate.Client) 
 		}
 	}()
 
+        ch.stateMu.Lock()
         ch.RoomStatus = chaturbate.StatusPublic
+        ch.stateMu.Unlock()
         ch.UpdateOnlineStatus(true) // after GetPlaylist succeeds
 
         ch.Info("stream quality - resolution %dp (target: %dp), framerate %dfps (target: %dfps)", playlist.Resolution, ch.Config.Resolution, playlist.Framerate, ch.Config.Framerate)
@@ -164,7 +168,9 @@ func (ch *Channel) HandleInitSegment(initData []byte) error {
         if err != nil {
                 return fmt.Errorf("write init segment: %w", err)
         }
+        ch.stateMu.Lock()
         ch.Filesize += n
+        ch.stateMu.Unlock()
         return nil
 }
 
@@ -197,7 +203,7 @@ func cfBackoffMinutes(consecutiveBlocks, baseInterval int) int {
 
 // HandleSegment processes and writes segment data to a file.
 func (ch *Channel) HandleSegment(b []byte, duration float64) error {
-        if ch.Config.IsPaused {
+        if ch.Config.IsPaused.Load() {
                 return retry.Unrecoverable(internal.ErrPaused)
         }
 
@@ -206,9 +212,13 @@ func (ch *Channel) HandleSegment(b []byte, duration float64) error {
                 return fmt.Errorf("write file: %w", err)
         }
 
+        ch.stateMu.Lock()
         ch.Filesize += n
         ch.Duration += duration
-        ch.Info("duration: %s, filesize: %s", internal.FormatDuration(ch.Duration), internal.FormatFilesize(ch.Filesize))
+        dur := ch.Duration
+        fs := ch.Filesize
+        ch.stateMu.Unlock()
+        ch.Info("duration: %s, filesize: %s", internal.FormatDuration(dur), internal.FormatFilesize(fs))
 
         // Send an SSE update to update the view
         ch.Update()
@@ -254,13 +264,12 @@ func (ch *Channel) HandleAudioSegment(b []byte, duration float64) error {
 	if ch.AudioFile == nil {
 		return nil
 	}
-	if ch.Config.IsPaused {
+	if ch.Config.IsPaused.Load() {
 		return retry.Unrecoverable(internal.ErrPaused)
 	}
 
 	if _, err := ch.AudioFile.Write(b); err != nil {
 		return fmt.Errorf("write audio file: %w", err)
 	}
-	ch.Duration += duration
 	return nil
 }

@@ -3,7 +3,6 @@ package router
 import (
         "encoding/json"
         "fmt"
-        "html/template"
         "io"
         "mime"
         "net/http"
@@ -73,7 +72,6 @@ func CreateChannel(c *gin.Context) {
 	var lastErr error
 	for _, username := range strings.Split(req.Username, ",") {
 		if err := server.Manager.CreateChannel(&entity.ChannelConfig{
-			IsPaused:    false,
 			Username:    username,
 			Framerate:   req.Framerate,
 			Resolution:  req.Resolution,
@@ -493,7 +491,7 @@ func VideoDetail(c *gin.Context) {
                 "MimeType":        mimeType,
                 "Links":           links,
                 "HostPlayers":     hostPlayers,
-                "HostPlayersJSON": template.JS(hostPlayersJSON),
+                "HostPlayersJSON": hostPlayersJSON,
                 "Tags":            tags,
                 "RoomTitle":       roomTitle,
                 "Viewers":         viewers,
