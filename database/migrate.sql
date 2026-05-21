@@ -280,8 +280,10 @@ CREATE POLICY "Allow all operations on disk_usage" ON disk_usage
 -- ============================================================================
 -- VIEWS
 -- ============================================================================
+-- Explicitly use SECURITY INVOKER so views respect the querying user's
+-- permissions and RLS policies instead of the view creator's.
 
-CREATE OR REPLACE VIEW recordings_with_links AS
+CREATE OR REPLACE VIEW recordings_with_links WITH (security_invoker = true) AS
 SELECT 
     r.*,
     COALESCE(
@@ -292,7 +294,7 @@ FROM recordings r
 LEFT JOIN upload_links ul ON r.id = ul.recording_id
 GROUP BY r.id;
 
-CREATE OR REPLACE VIEW channel_statistics AS
+CREATE OR REPLACE VIEW channel_statistics WITH (security_invoker = true) AS
 SELECT 
     c.username,
     c.is_paused,
@@ -306,7 +308,7 @@ FROM channels c
 LEFT JOIN recordings r ON c.username = r.username
 GROUP BY c.id, c.username, c.is_paused, c.created_at, c.updated_at;
 
-CREATE OR REPLACE VIEW recent_activity AS
+CREATE OR REPLACE VIEW recent_activity WITH (security_invoker = true) AS
 SELECT 
     'recording' AS activity_type,
     r.username,
