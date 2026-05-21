@@ -578,6 +578,10 @@ func muxVideoAudio(videoPath, audioPath, outputPath string) error {
 // uploadOrphanedFile uploads a file to all configured hosts and saves metadata
 // to Supabase. Unlike Channel.uploadFile, this doesn't require an active channel.
 // Username is extracted from the filename; metadata fields are left empty.
+//
+// If every configured host fails on the first attempt, it retries up to 2 more
+// times with a 60-second delay between attempts.  This handles transient network
+// or API outages that can occur when the app restarts after a crash.
 func uploadOrphanedFile(filePath, thumbURL, spriteURL string) bool {
         cfg := server.Config
         if cfg == nil {
@@ -594,20 +598,35 @@ func uploadOrphanedFile(filePath, thumbURL, spriteURL string) bool {
                 }
         }
 
-	// Upload to all configured hosts
-	upl := uploader.NewMultiHostUploader(
-		cfg.TurboViPlayAPIKey,
-		cfg.VoeSXAPIKey,
-		cfg.SendCMAPIKey,
-		cfg.ByseAPIKey,
-		nil, // no logger for orphan recovery
-	)
+        // Upload to all configured hosts — retry up to 3 times if all hosts fail.
+        const maxUploadAttempts = 3
+        const retryDelay = 60 * time.Second
 
-        results := upl.UploadToAll(filePath)
-        success := uploader.GetSuccessfulUploads(results)
-        log.Printf("recovery: upload finished — %d/%d successful for %s", len(success), len(results), filename)
+        upl := uploader.NewMultiHostUploader(
+                cfg.TurboViPlayAPIKey,
+                cfg.VoeSXAPIKey,
+                cfg.SendCMAPIKey,
+                cfg.ByseAPIKey,
+                nil, // no logger for orphan recovery
+        )
+
+        var success []uploader.UploadResult
+        for attempt := 1; attempt <= maxUploadAttempts; attempt++ {
+                results := upl.UploadToAll(filePath)
+                success = uploader.GetSuccessfulUploads(results)
+                log.Printf("recovery: upload attempt %d/%d — %d/%d successful for %s",
+                        attempt, maxUploadAttempts, len(success), len(results), filename)
+                if len(success) > 0 {
+                        break
+                }
+                if attempt < maxUploadAttempts {
+                        log.Printf("recovery: all hosts failed for %s — retrying in %s...", filename, retryDelay)
+                        time.Sleep(retryDelay)
+                }
+        }
 
         if len(success) == 0 {
+                log.Printf("recovery: [WARN] all upload attempts exhausted for %s — file will be retried on next restart", filename)
                 return false
         }
 
