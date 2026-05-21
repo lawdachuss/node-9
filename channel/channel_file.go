@@ -594,16 +594,14 @@ func uploadOrphanedFile(filePath, thumbURL, spriteURL string) bool {
                 }
         }
 
-        // Upload to all configured hosts
-        upl := uploader.NewMultiHostUploader(
-                cfg.TurboViPlayAPIKey,
-                cfg.VoeSXAPIKey,
-                cfg.StreamtapeLogin,
-                cfg.StreamtapeAPIKey,
-                cfg.SendCMAPIKey,
-                cfg.ByseAPIKey,
-                nil, // no logger for orphan recovery
-        )
+	// Upload to all configured hosts
+	upl := uploader.NewMultiHostUploader(
+		cfg.TurboViPlayAPIKey,
+		cfg.VoeSXAPIKey,
+		cfg.SendCMAPIKey,
+		cfg.ByseAPIKey,
+		nil, // no logger for orphan recovery
+	)
 
         results := upl.UploadToAll(filePath)
         success := uploader.GetSuccessfulUploads(results)

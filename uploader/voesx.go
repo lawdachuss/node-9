@@ -132,39 +132,32 @@ func (u *VoeSXUploader) uploadFile(filePath string) (string, error) {
 		return "", fmt.Errorf("get upload server: %w", err)
 	}
 
-	// Step 2: Upload file to the server
 	file, err := os.Open(filePath)
 	if err != nil {
 		return "", fmt.Errorf("open file: %w", err)
 	}
 	defer file.Close()
 
-	// Create multipart form
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	// Add API key
 	if err := writer.WriteField("key", u.apiKey); err != nil {
 		return "", fmt.Errorf("write api key field: %w", err)
 	}
 
-	// Add file
 	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
 	if err != nil {
 		return "", fmt.Errorf("create form file: %w", err)
 	}
 
-	// Copy file content
 	if _, err := io.Copy(part, file); err != nil {
 		return "", fmt.Errorf("copy file: %w", err)
 	}
 
-	// Close writer to finalize multipart form
 	if err := writer.Close(); err != nil {
 		return "", fmt.Errorf("close writer: %w", err)
 	}
 
-	// Create request
 	req, err := http.NewRequest("POST", uploadServer, body)
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
@@ -172,7 +165,6 @@ func (u *VoeSXUploader) uploadFile(filePath string) (string, error) {
 	req.Header.Set("User-Agent", defaultUserAgent)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	// Send request
 	resp, err := u.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("do request: %w", err)
@@ -197,8 +189,6 @@ func (u *VoeSXUploader) uploadFile(filePath string) (string, error) {
 		return "", fmt.Errorf("no file code in response")
 	}
 
-	// Build the view URL from the file code
-	// VOE.sx video URL format: https://voe.sx/{file_code}
 	viewURL := fmt.Sprintf("https://voe.sx/%s", uploadResp.File.FileCode)
 	return viewURL, nil
 }

@@ -23,7 +23,7 @@ func NewClient(url, apiKey string) *Client {
 	return &Client{
 		URL:    url,
 		APIKey: apiKey,
-		client: &http.Client{Timeout: 15 * time.Second},
+		client: &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
@@ -50,15 +50,15 @@ func (c *Client) request(method, path string, body interface{}) (*http.Response,
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
-		// Use resolution=merge-duplicates for upsert behavior
 		req.Header.Set("Prefer", "resolution=merge-duplicates,return=representation")
 	}
 
 	return c.client.Do(req)
 }
 
-// requestWithRetry executes the request and retries on transient 503 errors
-// (PGRST002 — schema cache rebuilding after migration).
+// requestWithRetry executes the request and retries on transient errors:
+// - 503 PGRST002 — schema cache rebuilding after migration
+// - 400 PGRST204 — column not in schema cache yet (PostgREST needs to refresh)
 func (c *Client) requestWithRetry(method, path string, body interface{}) (*http.Response, error) {
 	const maxRetries = 5
 	var lastErr error
@@ -69,19 +69,34 @@ func (c *Client) requestWithRetry(method, path string, body interface{}) (*http.
 			return nil, err
 		}
 
-		// Check for transient 503 PGRST002 error
-		if resp.StatusCode == 503 {
+		// Check for transient errors that need retry
+		if resp.StatusCode == 503 || resp.StatusCode == 400 {
 			bodyBytes, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			if strings.Contains(string(bodyBytes), "PGRST002") {
-				lastErr = fmt.Errorf("HTTP 503: %s", string(bodyBytes))
+			bodyStr := string(bodyBytes)
+
+			// PGRST002: schema cache rebuilding after migration
+			if resp.StatusCode == 503 && strings.Contains(bodyStr, "PGRST002") {
+				lastErr = fmt.Errorf("HTTP 503: %s", bodyStr)
 				backoff := time.Duration(2<<attempt) * time.Second
-				fmt.Printf("[WARN] Supabase schema cache not ready (attempt %d/%d), retrying in %v\n", attempt+1, maxRetries, backoff)
+				fmt.Printf("[WARN] Supabase schema cache rebuilding (attempt %d/%d), retrying in %v\n", attempt+1, maxRetries, backoff)
+				resp.Body.Close()
 				time.Sleep(backoff)
 				continue
 			}
-			// Non-retryable 503
-			return nil, fmt.Errorf("HTTP 503: %s", string(bodyBytes))
+
+			// PGRST204: column not yet in PostgREST schema cache
+			if resp.StatusCode == 400 && strings.Contains(bodyStr, "PGRST204") {
+				lastErr = fmt.Errorf("HTTP 400: %s", bodyStr)
+				backoff := time.Duration(2<<attempt) * time.Second
+				fmt.Printf("[WARN] Supabase schema cache stale — column missing (attempt %d/%d), retrying in %v\n", attempt+1, maxRetries, backoff)
+				resp.Body.Close()
+				time.Sleep(backoff)
+				continue
+			}
+
+			// Non-retryable error — return as-is
+			resp.Body.Close()
+			return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, bodyStr)
 		}
 
 		return resp, nil
@@ -138,17 +153,17 @@ func (c *Client) patch(path string, body interface{}) error {
 }
 
 func (c *Client) delete(path string) error {
-        resp, err := c.request("DELETE", path, nil)
-        if err != nil {
-                return err
-        }
-        defer resp.Body.Close()
+	resp, err := c.requestWithRetry("DELETE", path, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
 
-        if resp.StatusCode >= 400 {
-                bodyBytes, _ := io.ReadAll(resp.Body)
-                return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
-        }
-        return nil
+	if resp.StatusCode >= 400 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+	return nil
 }
 
 // ============================================================================
@@ -172,17 +187,17 @@ type Channel struct {
 // SaveChannel creates or updates a channel using Supabase's upsert functionality.
 // Uses on_conflict to atomically upsert by username, avoiding TOCTOU race conditions.
 func (c *Client) SaveChannel(ch *Channel) error {
-        resp, err := c.request("POST", "/channels?on_conflict=username", ch)
-        if err != nil {
-                return err
-        }
-        defer resp.Body.Close()
+	resp, err := c.requestWithRetry("POST", "/channels?on_conflict=username", ch)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
 
-        if resp.StatusCode >= 400 {
-                bodyBytes, _ := io.ReadAll(resp.Body)
-                return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
-        }
-        return nil
+	if resp.StatusCode >= 400 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+	return nil
 }
 
 // GetChannel retrieves a channel by username
@@ -236,39 +251,40 @@ func (c *Client) DeleteChannelsNotIn(usernames []string) error {
 // ============================================================================
 
 type Recording struct {
-        ID           string   `json:"id,omitempty"`
-        ChannelID    string   `json:"channel_id,omitempty"`
-        Username     string   `json:"username"`
-        Filename     string   `json:"filename"`
-        Timestamp    string   `json:"timestamp"`
-        RoomTitle    string   `json:"room_title,omitempty"`
-        Tags         []string `json:"tags,omitempty"`
-        Viewers      int      `json:"viewers"`
-        Resolution   string   `json:"resolution,omitempty"`
-        Framerate    int      `json:"framerate"`
-        Filesize     int64    `json:"filesize"`
-        Gender       string   `json:"gender,omitempty"`
-        ThumbnailURL string   `json:"thumbnail_url,omitempty"`
-        SpriteURL    string   `json:"sprite_url,omitempty"`
-        EmbedURL     string   `json:"embed_url,omitempty"`
-        CreatedAt    string   `json:"created_at,omitempty"`
-        UpdatedAt    string   `json:"updated_at,omitempty"`
+	ID           string   `json:"id,omitempty"`
+	ChannelID    string   `json:"channel_id,omitempty"`
+	Username     string   `json:"username"`
+	Filename     string   `json:"filename"`
+	Timestamp    string   `json:"timestamp"`
+	RoomTitle    string   `json:"room_title,omitempty"`
+	Tags         []string `json:"tags,omitempty"`
+	Viewers      int      `json:"viewers"`
+	Resolution   string   `json:"resolution,omitempty"`
+	Framerate    int      `json:"framerate"`
+	Filesize     int64    `json:"filesize"`
+	Gender       string   `json:"gender,omitempty"`
+	ThumbnailURL string   `json:"thumbnail_url,omitempty"`
+	SpriteURL    string   `json:"sprite_url,omitempty"`
+	EmbedURL     string   `json:"embed_url,omitempty"`
+	InstanceID   string   `json:"instance_id,omitempty"`
+	CreatedAt    string   `json:"created_at,omitempty"`
+	UpdatedAt    string   `json:"updated_at,omitempty"`
 }
 
 // SaveRecording creates or updates a recording using Supabase's upsert functionality.
 // Uses on_conflict to atomically upsert by filename, avoiding TOCTOU race conditions.
 func (c *Client) SaveRecording(rec *Recording) error {
-        resp, err := c.request("POST", "/recordings?on_conflict=filename", rec)
-        if err != nil {
-                return err
-        }
-        defer resp.Body.Close()
+	resp, err := c.requestWithRetry("POST", "/recordings?on_conflict=filename", rec)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
 
-        if resp.StatusCode >= 400 {
-                bodyBytes, _ := io.ReadAll(resp.Body)
-                return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
-        }
-        return nil
+	if resp.StatusCode >= 400 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+	return nil
 }
 
 // GetRecording retrieves a recording by filename
@@ -360,8 +376,8 @@ func (c *Client) SaveSetting(key string, value interface{}) error {
                 Value: jsonValue,
         }
 
-        // Upsert using Prefer header
-        resp, err := c.request("POST", "/app_settings", setting)
+	// Upsert using Prefer header
+	resp, err := c.requestWithRetry("POST", "/app_settings", setting)
         if err != nil {
                 return err
         }
@@ -459,28 +475,29 @@ func (c *Client) GetLogs(username string, limit int) ([]ChannelLog, error) {
 // ============================================================================
 
 type PreviewImage struct {
-        ID           string `json:"id,omitempty"`
-        RecordingID  string `json:"recording_id,omitempty"`
-        Filename     string `json:"filename"`
-        ThumbnailURL string `json:"thumbnail_url,omitempty"`
-        SpriteURL    string `json:"sprite_url,omitempty"`
-        UploadedAt   string `json:"uploaded_at,omitempty"`
+	ID           string `json:"id,omitempty"`
+	RecordingID  string `json:"recording_id,omitempty"`
+	Filename     string `json:"filename"`
+	ThumbnailURL string `json:"thumbnail_url,omitempty"`
+	SpriteURL    string `json:"sprite_url,omitempty"`
+	InstanceID   string `json:"instance_id,omitempty"`
+	UploadedAt   string `json:"uploaded_at,omitempty"`
 }
 
 // SavePreviewImage creates or updates preview image metadata using Supabase's upsert functionality.
 // Uses on_conflict to atomically upsert by filename, avoiding TOCTOU race conditions.
 func (c *Client) SavePreviewImage(img *PreviewImage) error {
-        resp, err := c.request("POST", "/preview_images?on_conflict=filename", img)
-        if err != nil {
-                return err
-        }
-        defer resp.Body.Close()
+	resp, err := c.requestWithRetry("POST", "/preview_images?on_conflict=filename", img)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
 
-        if resp.StatusCode >= 400 {
-                bodyBytes, _ := io.ReadAll(resp.Body)
-                return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
-        }
-        return nil
+	if resp.StatusCode >= 400 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+	return nil
 }
 
 // GetPreviewImage retrieves preview image metadata

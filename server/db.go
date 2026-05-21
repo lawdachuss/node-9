@@ -92,8 +92,8 @@ func supabaseRequestWithPrefer(method, path string, body []byte, prefer string) 
         if prefer != "" {
                 req.Header.Set("Prefer", prefer)
         }
-        client := &http.Client{Timeout: 10 * time.Second}
-        return client.Do(req)
+	client := &http.Client{Timeout: 60 * time.Second}
+	return client.Do(req)
 }
 
 // CheckSupabase verifies the app_settings table is reachable via the REST API.
@@ -575,18 +575,20 @@ func LoadCurrentTunnel() (string, error) {
 
 // SavePreviewLinks saves preview image URLs to Supabase
 func SavePreviewLinks(filename, thumbnailURL, spriteURL string) error {
-        client := GetDBClient()
-        if client == nil {
-                return fmt.Errorf("Supabase not configured")
-        }
+	client := GetDBClient()
+	if client == nil {
+		return fmt.Errorf("Supabase not configured")
+	}
 
-        img := &database.PreviewImage{
-                Filename:     filename,
-                ThumbnailURL: thumbnailURL,
-                SpriteURL:    spriteURL,
-        }
+	img := &database.PreviewImage{
+		Filename:     filename,
+		ThumbnailURL: thumbnailURL,
+		SpriteURL:    spriteURL,
+		InstanceID:   instanceID,
+		UploadedAt:   time.Now().UTC().Format("2006-01-02T15:04:05Z"),
+	}
 
-        return client.SavePreviewImage(img)
+	return client.SavePreviewImage(img)
 }
 
 // LoadPreviewLinks loads preview image URLs from Supabase

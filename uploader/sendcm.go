@@ -45,9 +45,29 @@ func NewSendCMUploader(apiKey string) *SendCMUploader {
 }
 
 type sendcmServerResponse struct {
-	Status int    `json:"status"`
-	Msg    string `json:"msg"`
-	Result string `json:"result"`
+	Status int             `json:"status"`
+	Msg    string          `json:"msg"`
+	Result json.RawMessage `json:"result"`
+}
+
+// GetResult extracts the upload server URL from the result field
+// Handles both string and object response formats
+func (r *sendcmServerResponse) GetResult() (string, error) {
+	// Try as string first
+	var strResult string
+	if err := json.Unmarshal(r.Result, &strResult); err == nil && strResult != "" {
+		return strResult, nil
+	}
+	
+	// Try as object with "url" field
+	var objResult struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(r.Result, &objResult); err == nil && objResult.URL != "" {
+		return objResult.URL, nil
+	}
+	
+	return "", fmt.Errorf("unexpected result format: %s", string(r.Result))
 }
 
 type sendcmUploadResponseItem struct {
@@ -117,11 +137,15 @@ func (u *SendCMUploader) getUploadServer() (string, error) {
 		return "", fmt.Errorf("server status not ok: %d (msg: %s)", serverResp.Status, serverResp.Msg)
 	}
 
-	if serverResp.Result == "" {
+	uploadServer, err := serverResp.GetResult()
+	if err != nil {
+		return "", fmt.Errorf("no upload server URL in response: %w", err)
+	}
+	if uploadServer == "" {
 		return "", fmt.Errorf("no upload server URL in response")
 	}
 
-	return serverResp.Result, nil
+	return uploadServer, nil
 }
 
 func (u *SendCMUploader) uploadFile(filePath string) (string, error) {
@@ -152,8 +176,10 @@ func (u *SendCMUploader) uploadFile(filePath string) (string, error) {
 
 	// Write multipart data in a goroutine
 	go func() {
-		defer pipeWriter.Close()
-		defer writer.Close()
+		defer func() {
+			writer.Close()
+			pipeWriter.Close()
+		}()
 
 		if u.apiKey != "" {
 			if err := writer.WriteField("key", u.apiKey); err != nil {
@@ -170,7 +196,8 @@ func (u *SendCMUploader) uploadFile(filePath string) (string, error) {
 			return
 		}
 
-		if _, err := io.Copy(part, file); err != nil {
+		buf := make([]byte, 1024*1024) // 1MB buffer
+		if _, err := io.CopyBuffer(part, file, buf); err != nil {
 			errChan <- fmt.Errorf("copy file: %w", err)
 			pipeWriter.CloseWithError(err)
 			return

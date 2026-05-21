@@ -186,9 +186,6 @@ func (u *ByseUploader) uploadFile(filePath string) (string, error) {
 		return "", fmt.Errorf("no file code in response")
 	}
 
-	// Return the embed URL for video playback
-	// Use filemoon.sx as it's the standard embed domain for Byse
-	// The actual embed domain will be dynamically fetched when generating player URLs
 	embedURL := fmt.Sprintf("https://filemoon.sx/e/%s", uploadResp.Files[0].Filecode)
 	return embedURL, nil
 }

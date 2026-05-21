@@ -30,11 +30,9 @@ permissions:
 env:
   APP_URL: http://localhost:8080
   COMPOSE_PROJECT_NAME: recorder
-  INSTANCE_ID: "a"
+  INSTANCE_ID: ${{ secrets.INSTANCE_ID || github.repository_id }}
   SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
   SUPABASE_API_KEY: ${{ secrets.SUPABASE_API_KEY }}
-  STREAMTAPE_LOGIN: ${{ secrets.STREAMTAPE_LOGIN }}
-  STREAMTAPE_API_KEY: ${{ secrets.STREAMTAPE_API_KEY }}
   VOESX_API_KEY: ${{ secrets.VOESX_API_KEY }}
   SENDCM_API_KEY: ${{ secrets.SENDCM_API_KEY }}
   GOFILE_API_KEY: ${{ secrets.GOFILE_API_KEY }}

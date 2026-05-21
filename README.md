@@ -152,19 +152,17 @@ flowchart LR
 
 2. **Add repository secrets** — go to `Settings` → `Secrets and variables` → `Actions` → `New repository secret`
 
-   | Secret | Required | Purpose |
-   |--------|----------|---------|
-   | `SUPABASE_URL` | Yes | Your Supabase project URL |
-   | `SUPABASE_API_KEY` | Yes | Supabase anon/service key |
-   | `STREAMTAPE_LOGIN` | For uploads | Streamtape email |
-   | `STREAMTAPE_API_KEY` | For uploads | Streamtape API key |
-   | `VOESX_API_KEY` | For uploads | Voe.sx API key |
-   | `SENDCM_API_KEY` | For uploads | SendCM API key |
-   | `GOFILE_API_KEY` | Optional | GoFile (guest works without) |
-   | `BYSE_API_KEY` | Optional | Byse.sx API key |
-   | `PROXY_SERVER` | Optional | Proxy URL for Byparr |
-   | `PROXY_USERNAME` | Optional | Proxy auth |
-   | `PROXY_PASSWORD` | Optional | Proxy auth |
+    | Secret | Required | Purpose |
+    |--------|----------|---------|
+    | `SUPABASE_URL` | Yes | Your Supabase project URL |
+    | `SUPABASE_API_KEY` | Yes | Supabase anon/service key |
+    | `VOESX_API_KEY` | For uploads | Voe.sx API key |
+    | `SENDCM_API_KEY` | For uploads | SendCM API key |
+    | `GOFILE_API_KEY` | Optional | GoFile (guest works without) |
+    | `BYSE_API_KEY` | Optional | Byse.sx API key |
+    | `PROXY_SERVER` | Optional | Proxy URL for Byparr |
+    | `PROXY_USERNAME` | Optional | Proxy auth |
+    | `PROXY_PASSWORD` | Optional | Proxy auth |
 
 3. **Configure channels** — edit [`conf/channels.json`](conf/channels.json) in your fork:
 
@@ -297,8 +295,6 @@ This sets up:
 | `INSTANCE_ID` | For multi-instance | Unique ID per fork/runner (e.g., `"a"`, `"b"`, `"c"`) |
 | `SUPABASE_URL` | For Actions | Supabase project URL |
 | `SUPABASE_API_KEY` | For Actions | Supabase anon key |
-| `STREAMTAPE_LOGIN` | For uploads | Streamtape email |
-| `STREAMTAPE_API_KEY` | For uploads | Streamtape API key |
 | `VOESX_API_KEY` | For uploads | Voe.sx API key |
 | `SENDCM_API_KEY` | For uploads | SendCM API key |
 | `GOFILE_API_KEY` | Optional | GoFile API key |
@@ -343,7 +339,6 @@ Byparr handles it — set `FLARESOLVERR_URL=http://byparr-lb/v1` (included in `d
 | Host | Environment Variable |
 |------|---------------------|
 | GoFile | `GOFILE_API_KEY` |
-| Streamtape | `STREAMTAPE_LOGIN` + `STREAMTAPE_API_KEY` |
 | Voe.sx | `VOESX_API_KEY` |
 | SendCM | `SENDCM_API_KEY` |
 | Byse | `BYSE_API_KEY` |

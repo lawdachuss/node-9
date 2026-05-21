@@ -142,24 +142,12 @@ func main() {
                                 EnvVars: []string{"VOESX_API_KEY"},
                                 Value:   "",
                         },
-                        &cli.StringFlag{
-                                Name:    "streamtape-login",
-                                Usage:   "Login email for Streamtape uploads",
-                                EnvVars: []string{"STREAMTAPE_LOGIN"},
-                                Value:   "",
-                        },
-                        &cli.StringFlag{
-                                Name:    "streamtape-api-key",
-                                Usage:   "API key for Streamtape uploads",
-                                EnvVars: []string{"STREAMTAPE_API_KEY"},
-                                Value:   "",
-                        },
-                        &cli.StringFlag{
-                                Name:    "sendcm-api-key",
-                                Usage:   "API key for SendCM uploads (optional, guest upload if empty)",
-                                EnvVars: []string{"SENDCM_API_KEY"},
-                                Value:   "",
-                        },
+			&cli.StringFlag{
+				Name:    "sendcm-api-key",
+				Usage:   "API key for SendCM uploads (optional, guest upload if empty)",
+				EnvVars: []string{"SENDCM_API_KEY"},
+				Value:   "",
+			},
                         &cli.StringFlag{
                                 Name:    "byse-api-key",
                                 Usage:   "API key for Byse uploads",

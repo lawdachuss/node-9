@@ -24,14 +24,13 @@ type MultiHostUploader struct {
 	gofile      *GoFileUploader
 	turboviplay *TurboViPlayUploader
 	voesx       *VoeSXUploader
-	streamtape  *StreamtapeUploader
 	sendcm      *SendCMUploader
 	byse        *ByseUploader
 	log         Logger
 }
 
 // NewMultiHostUploader creates a new multi-host uploader
-func NewMultiHostUploader(turboViPlayAPIKey, voeSXAPIKey, streamtapeLogin, streamtapeAPIKey, sendCMAPIKey, byseAPIKey string, log Logger) *MultiHostUploader {
+func NewMultiHostUploader(turboViPlayAPIKey, voeSXAPIKey, sendCMAPIKey, byseAPIKey string, log Logger) *MultiHostUploader {
 	if log == nil {
 		log = &nilLogger{}
 	}
@@ -39,7 +38,6 @@ func NewMultiHostUploader(turboViPlayAPIKey, voeSXAPIKey, streamtapeLogin, strea
 		gofile:      NewGoFileUploader(),
 		turboviplay: NewTurboViPlayUploader(turboViPlayAPIKey),
 		voesx:       NewVoeSXUploader(voeSXAPIKey),
-		streamtape:  NewStreamtapeUploader(streamtapeLogin, streamtapeAPIKey),
 		sendcm:      NewSendCMUploader(sendCMAPIKey),
 		byse:        NewByseUploader(byseAPIKey),
 		log:         log,
@@ -121,28 +119,6 @@ func (m *MultiHostUploader) UploadToAll(filePath string) []UploadResult {
 				m.log.Error("upload: VOE.sx failed for %s: %v", filePath, err)
 			} else {
 				m.log.Info("upload: VOE.sx successful for %s: %s", filePath, link)
-			}
-		}()
-	}
-
-	// Upload to Streamtape (only if credentials are configured)
-	if m.streamtape != nil && m.streamtape.login != "" && m.streamtape.apiKey != "" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			m.log.Info("upload: starting Streamtape upload for %s", filePath)
-			link, err := m.streamtape.Upload(filePath)
-			resultsMu.Lock()
-			results = append(results, UploadResult{
-				Host:         "Streamtape",
-				DownloadLink: link,
-				Error:        err,
-			})
-			resultsMu.Unlock()
-			if err != nil {
-				m.log.Error("upload: Streamtape failed for %s: %v", filePath, err)
-			} else {
-				m.log.Info("upload: Streamtape successful for %s: %s", filePath, link)
 			}
 		}()
 	}

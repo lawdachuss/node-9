@@ -103,10 +103,16 @@ CREATE TABLE IF NOT EXISTS tunnels (
 
 -- Add instance_id column for existing tables (safe re-run)
 ALTER TABLE tunnels ADD COLUMN IF NOT EXISTS instance_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE recordings ADD COLUMN IF NOT EXISTS instance_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE preview_images ADD COLUMN IF NOT EXISTS instance_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE upload_links ADD COLUMN IF NOT EXISTS instance_id TEXT NOT NULL DEFAULT 'default';
 
 CREATE INDEX IF NOT EXISTS idx_tunnels_active ON tunnels(is_active, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tunnels_run_id ON tunnels(run_id);
 CREATE INDEX IF NOT EXISTS idx_tunnels_instance ON tunnels(instance_id);
+CREATE INDEX IF NOT EXISTS idx_recordings_instance ON recordings(instance_id);
+CREATE INDEX IF NOT EXISTS idx_preview_images_instance ON preview_images(instance_id);
+CREATE INDEX IF NOT EXISTS idx_upload_links_instance ON upload_links(instance_id);
 
 -- ============================================================================
 -- 6. TUNNEL_SESSIONS TABLE (used by GitHub Actions workflow)
