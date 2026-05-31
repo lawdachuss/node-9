@@ -635,6 +635,27 @@ func embedURLForHostLink(host, link, byseAPIKey string) string {
                         return "https://voe.sx/e/" + code
                 }
         }
+        if strings.Contains(normalizedHost, "streamtape") || strings.Contains(normalizedLink, "streamtape.com/") {
+                if code := extractFileCode(link); code != "" {
+                        return "https://streamtape.com/e/" + code + "/"
+                }
+                return link
+        }
+        if strings.Contains(normalizedHost, "mixdrop") || strings.Contains(normalizedLink, "mixdrop.") {
+                if code := extractFileCode(link); code != "" {
+                        return "https://mixdrop.ag/e/" + code
+                }
+                return link
+        }
+        if strings.Contains(normalizedHost, "pixeldrain") || strings.Contains(normalizedLink, "pixeldrain.com/") {
+                return ""
+        }
+        if strings.Contains(normalizedHost, "turboviplay") || strings.Contains(normalizedLink, "emturbovid.com/") || strings.Contains(normalizedLink, "turboviplay.com/") {
+                return link
+        }
+        if strings.Contains(normalizedHost, "gofile") || strings.Contains(normalizedLink, "gofile.io/") {
+                return ""
+        }
         return ""
 }
 
@@ -725,6 +746,20 @@ func videoURLForHostLink(host, link string) string {
         case strings.Contains(normalizedHost, "sendcm") || strings.Contains(normalizedLink, "send.now/"):
                 return link
         case strings.Contains(normalizedHost, "turboviplay") || strings.Contains(normalizedLink, "emturbovid.com/") || strings.Contains(normalizedLink, "turboviplay.com/"):
+                return link
+        case strings.Contains(normalizedHost, "streamtape") || strings.Contains(normalizedLink, "streamtape.com/"):
+                if code := extractFileCode(link); code != "" {
+                        return "https://streamtape.com/e/" + code + "/"
+                }
+                return link
+        case strings.Contains(normalizedHost, "mixdrop") || strings.Contains(normalizedLink, "mixdrop."):
+                if code := extractFileCode(link); code != "" {
+                        return "https://mixdrop.ag/e/" + code
+                }
+                return link
+        case strings.Contains(normalizedHost, "pixeldrain") || strings.Contains(normalizedLink, "pixeldrain.com/"):
+                return link
+        case strings.Contains(normalizedHost, "gofile") || strings.Contains(normalizedLink, "gofile.io/"):
                 return link
         default:
                 return ""
