@@ -4,13 +4,13 @@ import (
         "fmt"
         "io"
         "os"
-        "os/exec"
         "path/filepath"
         "strings"
         "sync"
         "sync/atomic"
 
         "github.com/Eyevinn/mp4ff/mp4"
+        "github.com/teacat/chaturbate-dvr/config"
         "github.com/teacat/chaturbate-dvr/internal"
 )
 
@@ -51,7 +51,7 @@ var availableEncoders = []videoEncoder{
 func detectEncoder() (videoEncoder, string) {
         for _, enc := range availableEncoders {
                 // Test if encoder is available by running ffmpeg with it
-                cmd := exec.Command("ffmpeg", "-hide_banner", "-f", "lavfi", "-i", "nullsrc=s=256x256:d=1", "-c:v", enc.codec, "-f", "null", "-")
+                cmd := config.FFmpegCommand("-hide_banner", "-f", "lavfi", "-i", "nullsrc=s=256x256:d=1", "-c:v", enc.codec, "-f", "null", "-")
                 if err := cmd.Run(); err == nil {
                         return enc, enc.name
                 }
@@ -115,7 +115,7 @@ func (ch *Channel) CompressFile(srcPath string) {
                 args = append(args, encoder.args...)
                 args = append(args, "-c:a", "aac", "-b:a", "128k", mkvPath)
 
-                cmd := exec.Command("ffmpeg", args...)
+                cmd := config.FFmpegCommand(args...)
                 output, err := cmd.CombinedOutput()
                 if err != nil {
                         ch.Error("compress: failed %s - %s", srcFilename, err.Error())
@@ -186,7 +186,7 @@ func (ch *Channel) MuxAV(videoPath, audioPath, outputPath string) error {
                 outputPath,
         }
 
-        cmd := exec.Command("ffmpeg", args...)
+        cmd := config.FFmpegCommand(args...)
         output, err := cmd.CombinedOutput()
         if err != nil {
                 if len(output) > 0 {

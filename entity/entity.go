@@ -101,6 +101,8 @@ type Config struct {
         GitHubBranch      string
         GitHubPreviewPath string
 
-        SupabaseURL    string
-        SupabaseAPIKey string
+	SupabaseURL    string
+	SupabaseAPIKey string
+
+	FFmpegPath string
 }

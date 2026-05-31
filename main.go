@@ -137,11 +137,17 @@ func main() {
                                 Usage: "Chaturbate domain to use",
                                 Value: "https://chaturbate.com/",
                         },
-                        &cli.BoolFlag{
-                                Name:  "compress",
-                                Usage: "Compress recorded files (.ts or .mp4) to .mkv using ffmpeg after recording (auto-enabled if ffmpeg is installed)",
-                                Value: false,
-                        },
+			&cli.StringFlag{
+				Name:    "ffmpeg-path",
+				Usage:   "Path to ffmpeg executable (e.g. C:\\ffmpeg\\bin\\ffmpeg.exe). If not set, PATH is used.",
+				EnvVars: []string{"FFMPEG_PATH"},
+				Value:   "",
+			},
+			&cli.BoolFlag{
+				Name:  "compress",
+				Usage: "Compress recorded files (.ts or .mp4) to .mkv using ffmpeg after recording (auto-enabled if ffmpeg is installed)",
+				Value: false,
+			},
                         &cli.StringFlag{
                                 Name:    "output-dir",
                                 Usage:   "Directory to move completed recordings to (empty = keep in place)",

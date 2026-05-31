@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/teacat/chaturbate-dvr/config"
 	"github.com/teacat/chaturbate-dvr/uploader"
 )
 
@@ -65,7 +65,7 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 	defer probeCancel()
 
 	var dur float64
-	probeOut, probeErr := exec.CommandContext(probeCtx, "ffprobe",
+	probeOut, probeErr := config.FFprobeCommandContext(probeCtx,
 		"-v", "error",
 		"-show_entries", "format=duration",
 		"-of", "default=noprint_wrappers=1:nokey=1",
@@ -93,7 +93,7 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 			seekPos = fmt.Sprintf("%.2f", dur*0.1)
 		}
 
-		err := exec.CommandContext(thumbCtx, "ffmpeg",
+		err := config.FFmpegCommandContext(thumbCtx,
 			"-y",
 			"-ss", seekPos,
 			"-i", videoPath,
@@ -157,7 +157,7 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 			spriteCols, spriteRows,
 		)
 
-		err := exec.CommandContext(spriteCtx, "ffmpeg",
+		err := config.FFmpegCommandContext(spriteCtx,
 			"-y",
 			"-i", videoPath,
 			"-vf", vf,

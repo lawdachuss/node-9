@@ -8,11 +8,11 @@ import (
         "io"
         "log"
         "os"
-        "os/exec"
         "path/filepath"
         "strings"
         "time"
 
+        "github.com/teacat/chaturbate-dvr/config"
         "github.com/teacat/chaturbate-dvr/server"
         "github.com/teacat/chaturbate-dvr/uploader"
 )
@@ -565,7 +565,7 @@ func deleteSidecarFiles(videoPath string) {
 
 // muxVideoAudio combines a separate video and audio file into a single MP4.
 func muxVideoAudio(videoPath, audioPath, outputPath string) error {
-        cmd := exec.Command("ffmpeg", "-y",
+        cmd := config.FFmpegCommand("-y",
                 "-i", videoPath,
                 "-i", audioPath,
                 "-c", "copy",
