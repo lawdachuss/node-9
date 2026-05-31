@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -30,6 +31,7 @@ func NewPixeldrainUploader(token string) *PixeldrainUploader {
 				TLSHandshakeTimeout:   30 * time.Second,
 				ResponseHeaderTimeout: 120 * time.Second,
 				DisableKeepAlives:     true,
+				DialContext:           (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
 			},
 		},
 	}

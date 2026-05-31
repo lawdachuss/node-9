@@ -74,7 +74,8 @@ Write-Host "  Node.js deps installed" -ForegroundColor Green
 # Copy .env from example if not exists
 if (-not (Test-Path "$ProjectDir\.env")) {
     Copy-Item "$ProjectDir\.env.example" "$ProjectDir\.env"
-    Write-Host "  Created .env from .env.example ? edit it with your API keys!" -ForegroundColor Yellow
+    Add-Content "$ProjectDir\.env" "`n# Safety: don't delete local files after upload`nDELETE_LOCAL_AFTER_UPLOAD=false"
+    Write-Host "  Created .env from .env.example - edit it with your API keys!" -ForegroundColor Yellow
 }
 
 Write-Host "`n=== Setup complete! ===" -ForegroundColor Cyan

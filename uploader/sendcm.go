@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -39,6 +40,7 @@ func NewSendCMUploader(apiKey string) *SendCMUploader {
 				WriteBufferSize:       64 * 1024, // 64KB write buffer for better throughput
 				ReadBufferSize:        64 * 1024, // 64KB read buffer
 				ForceAttemptHTTP2:     false, // Stick to HTTP/1.1 for better compatibility
+				DialContext:           (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
 			},
 		},
 	}

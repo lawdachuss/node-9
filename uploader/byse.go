@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -33,6 +34,7 @@ func NewByseUploader(apiKey string) *ByseUploader {
 				MaxIdleConnsPerHost: 100,
 				IdleConnTimeout:     90 * time.Second,
 				DisableCompression:  true,
+				DialContext:         (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
 			},
 		},
 	}

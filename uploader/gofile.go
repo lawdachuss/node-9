@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -30,6 +31,7 @@ func NewGoFileUploader() *GoFileUploader {
 				MaxIdleConnsPerHost: 100,
 				IdleConnTimeout:     90 * time.Second,
 				DisableCompression:  true, // Don't compress video files
+				DialContext:         (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
 			},
 		},
 	}

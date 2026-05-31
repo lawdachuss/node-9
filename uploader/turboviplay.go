@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -35,6 +36,7 @@ func NewTurboViPlayUploader(apiKey string) *TurboViPlayUploader {
 				IdleConnTimeout:     90 * time.Second,
 				DisableCompression:  true,
 				TLSClientConfig:     &tls.Config{InsecureSkipVerify: true}, // Skip SSL verification
+				DialContext:         (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
 			},
 		},
 	}

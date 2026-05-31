@@ -4,6 +4,7 @@ import (
         "encoding/json"
         "fmt"
         "io"
+        "net"
         "net/http"
         "time"
 )
@@ -30,6 +31,7 @@ func NewMixdropUploader(email, token string) *MixdropUploader {
                                 TLSHandshakeTimeout:   30 * time.Second,
                                 ResponseHeaderTimeout: 120 * time.Second,
                                 DisableKeepAlives:     true,
+                                DialContext:           (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
                         },
                 },
         }
