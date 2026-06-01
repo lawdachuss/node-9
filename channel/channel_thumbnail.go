@@ -87,6 +87,7 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 		defer thumbCancel()
 
 		thumbJPG := videoPath + ".thumb.jpg"
+		defer os.Remove(thumbJPG)
 
 		seekPos := "00:00:03"
 		if dur > 0 && dur < 3 {
@@ -138,6 +139,7 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 		defer spriteCancel()
 
 		spriteJPG := videoPath + ".sprite.jpg"
+		defer os.Remove(spriteJPG)
 
 		// Compute the interval so we get exactly spriteFrames frames spread
 		// evenly across the whole video.  Clamp to at least 0.1 s.
@@ -190,9 +192,6 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 
 	thumbURL = <-thumbDone
 	spriteURL = <-spriteDone
-
-	os.Remove(videoPath + ".thumb.jpg")
-	os.Remove(videoPath + ".sprite.jpg")
 
 	return thumbURL, spriteURL
 }

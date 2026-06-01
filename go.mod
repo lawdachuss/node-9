@@ -5,10 +5,12 @@ go 1.26.0
 require (
 	github.com/Eyevinn/mp4ff v0.51.0
 	github.com/avast/retry-go/v4 v4.6.1
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/gin-gonic/gin v1.10.0
 	github.com/grafov/m3u8 v0.12.1
 	github.com/r3labs/sse/v2 v2.10.0
 	github.com/samber/lo v1.49.1
+	github.com/sardanioss/httpcloak v1.6.6
 	github.com/urfave/cli/v2 v2.27.6
 	golang.org/x/sys v0.39.0
 )
@@ -37,7 +39,6 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/sardanioss/http v1.2.0 // indirect
-	github.com/sardanioss/httpcloak v1.6.6 // indirect
 	github.com/sardanioss/net v1.2.6 // indirect
 	github.com/sardanioss/qpack v0.6.3 // indirect
 	github.com/sardanioss/quic-go v1.2.25 // indirect

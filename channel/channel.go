@@ -19,8 +19,9 @@ import (
 // pendingFile tracks a closed recording file awaiting post-processing
 // (mux, move to output dir, thumbnail, upload, DB save, deletion).
 type pendingFile struct {
-	videoPath string
-	audioPath string // empty if no separate audio
+	videoPath        string
+	audioPath        string // empty if no separate audio
+	hasSeparateAudio bool   // captured at queue-time so file-level A/V pairing survives stream config changes
 }
 
 // Channel represents a channel instance.
@@ -79,6 +80,7 @@ func New(conf *entity.ChannelConfig) *Channel {
 		CancelFunc:      func() {},
 		PauseCancelFunc: func() {},
 		uploadSem:       make(chan struct{}, 1),
+		RoomStatus:      "offline",
 	}
 	go ch.Publisher()
 
@@ -174,12 +176,6 @@ func (ch *Channel) ExportStatusInfo() *entity.ChannelInfo {
 }
 
 func (ch *Channel) exportInfo(includeLogs bool) *entity.ChannelInfo {
-	var filename string
-	if ch.CurrentFilename != "" && ch.HasSeparateAudio {
-		filename = ch.CurrentFilename + ".mp4"
-	} else if ch.File != nil {
-		filename = ch.File.Name()
-	}
 	var streamedAt string
 	if ch.StreamedAt != 0 {
 		streamedAt = time.Unix(ch.StreamedAt, 0).Format("2006-01-02 15:04 AM")
@@ -190,7 +186,15 @@ func (ch *Channel) exportInfo(includeLogs bool) *entity.ChannelInfo {
 	roomStatus := ch.RoomStatus
 	duration := ch.Duration
 	filesize := ch.Filesize
+	currentFilename := ch.CurrentFilename
 	ch.stateMu.Unlock()
+
+	var filename string
+	if currentFilename != "" && ch.HasSeparateAudio {
+		filename = currentFilename + ".mp4"
+	} else if ch.File != nil {
+		filename = ch.File.Name()
+	}
 
 	var logsCopy []string
 	if includeLogs {

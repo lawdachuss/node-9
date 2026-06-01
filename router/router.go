@@ -77,9 +77,14 @@ func SetupViews(r *gin.Engine) {
         r.GET("/resume_channel/:username", ResumeChannel)
         r.POST("/resume_channel/:username", ResumeChannel)
 
-        // Tunnel API
-        r.GET("/api/tunnel", GetTunnel)
-        r.POST("/api/tunnel", UpdateTunnel)
+	// Tunnel API
+	r.GET("/api/tunnel", GetTunnel)
+	r.POST("/api/tunnel", UpdateTunnel)
+
+	// Orphan management API
+	r.GET("/api/orphans", ListOrphans)
+	r.POST("/api/orphans/retry", RetryOrphan)
+	r.DELETE("/api/orphans", DeleteOrphans)
 
 }
 

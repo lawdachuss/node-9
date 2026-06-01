@@ -85,9 +85,13 @@ type Config struct {
 	ProxyUsername string
 	ProxyPassword string
 
-	OutputDir              string
-	PerModelFolder         bool
-	DeleteLocalAfterUpload bool
+	OutputDir               string
+	PerModelFolder          bool
+	DeleteLocalAfterUpload  bool
+	OrphanCleanupInterval   int  // minutes between periodic orphan/thumbnail sweeps (0 = disabled)
+	DiskWarningPercent      int  // log warning when disk usage exceeds this (0 = disabled, default 80)
+	DiskCriticalPercent     int  // auto-delete oldest recordings when disk exceeds this (0 = disabled, default 90)
+	MaxLocalAgeDays         int  // delete local files older than N days if uploaded (0 = disabled)
 
 	TurboViPlayAPIKey string
 	VoeSXAPIKey       string

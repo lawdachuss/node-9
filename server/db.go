@@ -377,103 +377,109 @@ func SaveRecordingsToDB(data []byte) error {
                                         return fmt.Errorf("save preview image %s: %w", rec.Filename, err)
                                 }
                         }
-                }
-        }
+		}
+	}
 
-        return nil
+	cacheClear()
+	return nil
 }
 
 // LoadRecordingsFromDB loads recordings from Supabase
 func LoadRecordingsFromDB() []byte {
-        client := GetDBClient()
-        if client == nil {
-                return nil
-        }
+	if data := cacheGet("recordings"); data != nil {
+		return data
+	}
 
-        recordings, err := client.GetAllRecordings()
-        if err != nil {
-                fmt.Printf("[WARN] Failed to load recordings from Supabase: %v\n", err)
-                return nil
-        }
+	client := GetDBClient()
+	if client == nil {
+		return nil
+	}
 
-        // Convert to the old JSON format for compatibility
-        type RecordingEntry struct {
-                Filename     string            `json:"filename"`
-                Timestamp    string            `json:"timestamp"`
-                RoomTitle    string            `json:"room_title"`
-                Tags         []string          `json:"tags"`
-                Viewers      int               `json:"viewers"`
-                Resolution   string            `json:"resolution"`
-                Framerate    int               `json:"framerate"`
-                Links        map[string]string `json:"links"`
-                ThumbnailURL string            `json:"thumbnail_url"`
-                SpriteURL    string            `json:"sprite_url"`
-                EmbedURL     string            `json:"embed_url"`
-                Filesize     int64             `json:"filesize"`
-        }
+	recordings, err := client.GetAllRecordings()
+	if err != nil {
+		fmt.Printf("[WARN] Failed to load recordings from Supabase: %v\n", err)
+		return nil
+	}
 
-        type ChannelRecordings struct {
-                Gender     string            `json:"gender"`
-                Recordings []RecordingEntry  `json:"recordings"`
-        }
+	// Convert to the old JSON format for compatibility
+	type RecordingEntry struct {
+		Filename     string            `json:"filename"`
+		Timestamp    string            `json:"timestamp"`
+		RoomTitle    string            `json:"room_title"`
+		Tags         []string          `json:"tags"`
+		Viewers      int               `json:"viewers"`
+		Resolution   string            `json:"resolution"`
+		Framerate    int               `json:"framerate"`
+		Links        map[string]string `json:"links"`
+		ThumbnailURL string            `json:"thumbnail_url"`
+		SpriteURL    string            `json:"sprite_url"`
+		EmbedURL     string            `json:"embed_url"`
+		Filesize     int64             `json:"filesize"`
+	}
 
-        type RecordingsDB struct {
-                Version  int                          `json:"version"`
-                Channels map[string]*ChannelRecordings `json:"channels"`
-        }
+	type ChannelRecordings struct {
+		Gender     string            `json:"gender"`
+		Recordings []RecordingEntry  `json:"recordings"`
+	}
 
-        db := RecordingsDB{
-                Version:  2,
-                Channels: make(map[string]*ChannelRecordings),
-        }
+	type RecordingsDB struct {
+		Version  int                          `json:"version"`
+		Channels map[string]*ChannelRecordings `json:"channels"`
+	}
 
-        // Group recordings by username
-        for _, rec := range recordings {
-                chanData, ok := db.Channels[rec.Username]
-                if !ok {
-                        chanData = &ChannelRecordings{
-                                Gender:     rec.Gender,
-                                Recordings: []RecordingEntry{},
-                        }
-                        db.Channels[rec.Username] = chanData
-                }
+	db := RecordingsDB{
+		Version:  2,
+		Channels: make(map[string]*ChannelRecordings),
+	}
 
-                // Get upload links for this recording
-                links := make(map[string]string)
-                if rec.ID != "" {
-                        uploadLinks, err := client.GetUploadLinks(rec.ID)
-                        if err == nil {
-                                for _, link := range uploadLinks {
-                                        links[link.Host] = link.URL
-                                }
-                        }
-                }
+	// Group recordings by username
+	for _, rec := range recordings {
+		chanData, ok := db.Channels[rec.Username]
+		if !ok {
+			chanData = &ChannelRecordings{
+				Gender:     rec.Gender,
+				Recordings: []RecordingEntry{},
+			}
+			db.Channels[rec.Username] = chanData
+		}
 
-                entry := RecordingEntry{
-                        Filename:     rec.Filename,
-                        Timestamp:    rec.Timestamp,
-                        RoomTitle:    rec.RoomTitle,
-                        Tags:         rec.Tags,
-                        Viewers:      rec.Viewers,
-                        Resolution:   rec.Resolution,
-                        Framerate:    rec.Framerate,
-                        Links:        links,
-                        ThumbnailURL: rec.ThumbnailURL,
-                        SpriteURL:    rec.SpriteURL,
-                        EmbedURL:     rec.EmbedURL,
-                        Filesize:     rec.Filesize,
-                }
+		// Get upload links for this recording
+		links := make(map[string]string)
+		if rec.ID != "" {
+			uploadLinks, err := client.GetUploadLinks(rec.ID)
+			if err == nil {
+				for _, link := range uploadLinks {
+					links[link.Host] = link.URL
+				}
+			}
+		}
 
-                chanData.Recordings = append(chanData.Recordings, entry)
-        }
+		entry := RecordingEntry{
+			Filename:     rec.Filename,
+			Timestamp:    rec.Timestamp,
+			RoomTitle:    rec.RoomTitle,
+			Tags:         rec.Tags,
+			Viewers:      rec.Viewers,
+			Resolution:   rec.Resolution,
+			Framerate:    rec.Framerate,
+			Links:        links,
+			ThumbnailURL: rec.ThumbnailURL,
+			SpriteURL:    rec.SpriteURL,
+			EmbedURL:     rec.EmbedURL,
+			Filesize:     rec.Filesize,
+		}
 
-        data, err := json.Marshal(db)
-        if err != nil {
-                fmt.Printf("[WARN] Failed to marshal recordings: %v\n", err)
-                return nil
-        }
+		chanData.Recordings = append(chanData.Recordings, entry)
+	}
 
-        return data
+	data, err := json.Marshal(db)
+	if err != nil {
+		fmt.Printf("[WARN] Failed to marshal recordings: %v\n", err)
+		return nil
+	}
+
+	cacheSet("recordings", data, 15*time.Second)
+	return data
 }
 
 // SaveRecordingWithLinks saves a recording and its upload links directly to Supabase.
@@ -533,6 +539,7 @@ func SaveRecordingWithLinks(username, filename, timestamp, roomTitle string, tag
                 fmt.Printf("[WARN] Failed to save some upload links: %s\n", strings.Join(linkErrs, "; "))
         }
 
+        cacheClear()
         return nil
 }
 
@@ -590,7 +597,12 @@ func SavePreviewLinks(filename, thumbnailURL, spriteURL string) error {
 		UploadedAt:   time.Now().UTC().Format("2006-01-02T15:04:05Z"),
 	}
 
-	return client.SavePreviewImage(img)
+	if err := client.SavePreviewImage(img); err != nil {
+		return err
+	}
+
+	cacheClear()
+	return nil
 }
 
 // LoadPreviewLinks loads preview image URLs from Supabase
@@ -611,24 +623,35 @@ func LoadPreviewLinks(filename string) (thumbnailURL, spriteURL string) {
 // LoadAllPreviewLinks returns a map of filename -> [thumbnailURL, spriteURL] for all preview images.
 // Use this instead of calling LoadPreviewLinks in a loop to avoid N+1 queries.
 func LoadAllPreviewLinks() map[string][2]string {
-        client := GetDBClient()
-        if client == nil {
-                return nil
-        }
+	if data := cacheGet("preview_links"); data != nil {
+		var result map[string][2]string
+		if err := json.Unmarshal(data, &result); err == nil {
+			return result
+		}
+	}
 
-        images, err := client.GetAllPreviewImages()
-        if err != nil {
-                fmt.Printf("[WARN] Failed to load all preview images: %v\n", err)
-                return nil
-        }
+	client := GetDBClient()
+	if client == nil {
+		return nil
+	}
 
-        result := make(map[string][2]string, len(images))
-        for _, img := range images {
-                if img.Filename != "" && (img.ThumbnailURL != "" || img.SpriteURL != "") {
-                        result[img.Filename] = [2]string{img.ThumbnailURL, img.SpriteURL}
-                }
-        }
-        return result
+	images, err := client.GetAllPreviewImages()
+	if err != nil {
+		fmt.Printf("[WARN] Failed to load all preview images: %v\n", err)
+		return nil
+	}
+
+	result := make(map[string][2]string, len(images))
+	for _, img := range images {
+		if img.Filename != "" && (img.ThumbnailURL != "" || img.SpriteURL != "") {
+			result[img.Filename] = [2]string{img.ThumbnailURL, img.SpriteURL}
+		}
+	}
+
+	if data, err := json.Marshal(result); err == nil {
+		cacheSet("preview_links", data, 30*time.Second)
+	}
+	return result
 }
 
 // DeleteChannelFromDB removes a channel record from Supabase.
@@ -713,5 +736,63 @@ func DeleteVideoCompletely(filename string) error {
         if len(errs) > 0 {
                 return fmt.Errorf("delete errors: %s", strings.Join(errs, "; "))
         }
+
+        cacheClear()
         return nil
+}
+
+// ─── Upload Journal ───────────────────────────────────────────────────────────
+
+// SaveJournalEntry records the upload state for a file on a specific host.
+func SaveJournalEntry(fileHash, filename, host, status string, fileSize int64, errMsg string) error {
+        client := GetDBClient()
+        if client == nil {
+                return fmt.Errorf("Supabase not configured")
+        }
+
+        entry := &database.UploadJournal{
+                FileHash:   fileHash,
+                Filename:   filename,
+                Host:       host,
+                Status:     status,
+                ErrorMsg:   errMsg,
+                FileSize:   fileSize,
+                InstanceID: instanceID,
+        }
+
+        return client.SaveJournalEntry(entry)
+}
+
+// LoadJournalByHash returns all journal entries for a given file hash.
+func LoadJournalByHash(fileHash string) ([]database.UploadJournal, error) {
+        client := GetDBClient()
+        if client == nil {
+                return nil, fmt.Errorf("Supabase not configured")
+        }
+        return client.GetJournalByHash(fileHash)
+}
+
+// LoadCompletedHosts returns the list of hosts that have successfully received
+// the file identified by fileHash.
+func LoadCompletedHosts(fileHash string) ([]string, error) {
+        entries, err := LoadJournalByHash(fileHash)
+        if err != nil {
+                return nil, err
+        }
+        var hosts []string
+        for _, e := range entries {
+                if e.Status == "success" {
+                        hosts = append(hosts, e.Host)
+                }
+        }
+        return hosts, nil
+}
+
+// DeleteJournalByHash removes all journal entries for a file hash.
+func DeleteJournalByHash(fileHash string) error {
+        client := GetDBClient()
+        if client == nil {
+                return nil
+        }
+        return client.DeleteJournalByHash(fileHash)
 }

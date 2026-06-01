@@ -16,8 +16,9 @@ import (
         "sync"
         "time"
 
-        "github.com/gin-gonic/gin"
-        "github.com/teacat/chaturbate-dvr/entity"
+	"github.com/gin-gonic/gin"
+	"github.com/teacat/chaturbate-dvr/channel"
+	"github.com/teacat/chaturbate-dvr/entity"
         "github.com/teacat/chaturbate-dvr/internal"
         "github.com/teacat/chaturbate-dvr/server"
 )
@@ -800,4 +801,150 @@ func extractFileCode(link string) string {
                 return parts[len(parts)-1]
         }
         return ""
+}
+
+// ─── Orphan Management API ────────────────────────────────────────────────────
+
+type orphanEntry struct {
+	Path     string `json:"path"`
+	Filename string `json:"filename"`
+	Size     int64  `json:"size"`
+	ModTime  string `json:"modTime"`
+	Age      string `json:"age"`
+}
+
+// ListOrphans returns a JSON list of orphaned video files found in the
+// videos/ and OutputDir directories.  Orphans are files that exist on disk
+// but have no Supabase recording entry.
+func ListOrphans(c *gin.Context) {
+	dirs := []string{"videos"}
+	if server.Config.OutputDir != "" {
+		dirs = append(dirs, server.Config.OutputDir)
+	}
+
+	// Load all recordings once to avoid N+1 queries
+	uploaded := map[string]bool{}
+	allRecs, _ := server.GetDBClient().GetAllRecordings()
+	for i := range allRecs {
+		uploaded[allRecs[i].Filename] = true
+	}
+
+	var orphans []orphanEntry
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			ext := strings.ToLower(filepath.Ext(name))
+			if ext != ".mp4" && ext != ".mkv" {
+				continue
+			}
+			if strings.Contains(name, ".video.") || strings.Contains(name, ".audio.") || strings.Contains(name, ".muxed.") {
+				continue
+			}
+
+			if uploaded[name] {
+				continue // not orphaned — already uploaded
+			}
+
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+
+			orphans = append(orphans, orphanEntry{
+				Path:     filepath.Join(dir, name),
+				Filename: name,
+				Size:     info.Size(),
+				ModTime:  info.ModTime().Format(time.RFC3339),
+				Age:      time.Since(info.ModTime()).Round(time.Hour).String(),
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"orphans": orphans})
+}
+
+// RetryOrphan triggers thumbnail generation + upload for one or more orphan
+// files.  Expects JSON body: {"paths": ["/path/to/file.mp4", ...]}.
+func RetryOrphan(c *gin.Context) {
+	var req struct {
+		Paths []string `json:"paths"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if len(req.Paths) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no paths provided"})
+		return
+	}
+
+	type result struct {
+		Path   string `json:"path"`
+		Status string `json:"status"`
+		Error  string `json:"error,omitempty"`
+	}
+
+	results := make([]result, len(req.Paths))
+	var wg sync.WaitGroup
+	for i, path := range req.Paths {
+		wg.Add(1)
+		go func(idx int, p string) {
+			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					results[idx] = result{Path: p, Status: "failed", Error: fmt.Sprintf("panic: %v", r)}
+				}
+			}()
+			thumbURL, spriteURL := channel.GenerateThumbnailForFile(p)
+			if !channel.UploadOrphanedFile(p, thumbURL, spriteURL) {
+				results[idx] = result{Path: p, Status: "failed", Error: "upload did not complete successfully"}
+				return
+			}
+			results[idx] = result{Path: p, Status: "success"}
+		}(i, path)
+	}
+	wg.Wait()
+
+	c.JSON(http.StatusOK, gin.H{"results": results})
+}
+
+// DeleteOrphans deletes orphan files from disk.  Expects JSON body:
+// {"paths": ["/path/to/file.mp4", ...]}.
+func DeleteOrphans(c *gin.Context) {
+	var req struct {
+		Paths []string `json:"paths"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if len(req.Paths) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no paths provided"})
+		return
+	}
+
+	deleted := 0
+	var errors []string
+	for _, path := range req.Paths {
+		if err := os.Remove(path); err != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", path, err))
+		} else {
+			deleted++
+		}
+	}
+
+	resp := gin.H{"deleted": deleted}
+	if len(errors) > 0 {
+		resp["errors"] = errors
+	}
+	c.JSON(http.StatusOK, resp)
 }

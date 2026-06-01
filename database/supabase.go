@@ -553,6 +553,58 @@ func (c *Client) GetLatestDiskUsage() (*DiskUsage, error) {
 }
 
 // ============================================================================
+// UPLOAD JOURNAL
+// ============================================================================
+
+type UploadJournal struct {
+        ID         string `json:"id,omitempty"`
+        FileHash   string `json:"file_hash"`
+        Filename   string `json:"filename"`
+        Host       string `json:"host"`
+        Status     string `json:"status"`
+        ErrorMsg   string `json:"error_msg,omitempty"`
+        FileSize   int64  `json:"file_size,omitempty"`
+        InstanceID string `json:"instance_id,omitempty"`
+        CreatedAt  string `json:"created_at,omitempty"`
+        UpdatedAt  string `json:"updated_at,omitempty"`
+}
+
+// SaveJournalEntry creates or updates an upload journal entry.
+// Uses on_conflict to upsert by (file_hash, host).
+func (c *Client) SaveJournalEntry(entry *UploadJournal) error {
+        resp, err := c.requestWithRetry("POST", "/upload_journal?on_conflict=file_hash,host", entry)
+        if err != nil {
+                return err
+        }
+        defer resp.Body.Close()
+
+        if resp.StatusCode >= 400 {
+                bodyBytes, _ := io.ReadAll(resp.Body)
+                return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+        }
+        return nil
+}
+
+// GetJournalByHash retrieves all journal entries for a given file hash.
+func (c *Client) GetJournalByHash(fileHash string) ([]UploadJournal, error) {
+        var entries []UploadJournal
+        err := c.get(fmt.Sprintf("/upload_journal?file_hash=eq.%s&order=host.asc", url.QueryEscape(fileHash)), &entries)
+        return entries, err
+}
+
+// GetJournalEntriesByStatus retrieves all journal entries with a given status.
+func (c *Client) GetJournalEntriesByStatus(status string) ([]UploadJournal, error) {
+        var entries []UploadJournal
+        err := c.get(fmt.Sprintf("/upload_journal?status=eq.%s&order=created_at.desc", url.QueryEscape(status)), &entries)
+        return entries, err
+}
+
+// DeleteJournalByHash removes all journal entries for a file hash (e.g. after local file is deleted).
+func (c *Client) DeleteJournalByHash(fileHash string) error {
+        return c.delete(fmt.Sprintf("/upload_journal?file_hash=eq.%s", url.QueryEscape(fileHash)))
+}
+
+// ============================================================================
 // HEALTH CHECK
 // ============================================================================
 

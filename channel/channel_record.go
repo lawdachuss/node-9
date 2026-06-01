@@ -24,6 +24,10 @@ func (ch *Channel) Monitor() {
 	// and will be called by `Pause` or `Stop` functions
 	ctx, _ := ch.WithCancel(context.Background())
 
+	ch.stateMu.Lock()
+	ch.RoomStatus = "offline"
+	ch.stateMu.Unlock()
+
 	var err error
 	for {
 		if err = ctx.Err(); err != nil {

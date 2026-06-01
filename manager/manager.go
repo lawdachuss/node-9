@@ -18,7 +18,33 @@ import (
 	"github.com/teacat/chaturbate-dvr/entity"
 	"github.com/teacat/chaturbate-dvr/router/view"
 	"github.com/teacat/chaturbate-dvr/server"
+	"github.com/teacat/chaturbate-dvr/watcher"
 )
+
+// renderCacheEntry holds the last-rendered HTML and a fingerprint of the
+// ChannelInfo fields that affect template output. When the fingerprint
+// matches a previous publish, the SSE event is skipped entirely.
+type renderCacheEntry struct {
+	html        []byte
+	fingerprint string
+}
+
+// channelInfoFingerprint produces a string that changes whenever any
+// field displayed in the channel_info template changes. This is used
+// to skip redundant template renders + SSE pushes.
+func channelInfoFingerprint(info *entity.ChannelInfo) string {
+	return fmt.Sprintf("%t|%t|%t|%t|%s|%s|%s|%s|%s",
+		info.IsOnline,
+		info.IsConnecting,
+		info.IsPaused,
+		info.IsCompressing,
+		info.RoomStatus,
+		info.Duration,
+		info.Filesize,
+		info.Filename,
+		info.StreamedAt,
+	)
+}
 
 // Manager is responsible for managing channels and their states.
 type Manager struct {
@@ -32,6 +58,20 @@ type Manager struct {
 	// resumed, or stopped in quick succession.
 	saveDebounce   *time.Timer
 	saveDebounceMu sync.Mutex
+
+	// logRateLimit rate-limits SSE log events to at most 1 per second
+	// per channel. Log lines still go to the in-memory buffer and
+	// terminal output; only the SSE broadcast is throttled to prevent
+	// browser lag when many channels are recording simultaneously.
+	logRateLimit   map[string]time.Time
+	logRateLimitMu sync.Mutex
+
+	// renderCache caches the last-rendered channel_info HTML per
+	// channel.  Publish() skips the SSE push when the fingerprint
+	// is unchanged, which eliminates redundant template execution
+	// and browser DOM replacements for offline/paused channels.
+	renderCache   map[string]*renderCacheEntry
+	renderCacheMu sync.Mutex
 }
 
 // New initializes a new Manager instance with an SSE server.
@@ -44,7 +84,9 @@ func New() (*Manager, error) {
 	updateStream.AutoReplay = false
 
 	return &Manager{
-		SSE: server,
+		SSE:          server,
+		logRateLimit: make(map[string]time.Time),
+		renderCache:  make(map[string]*renderCacheEntry),
 	}, nil
 }
 
@@ -133,6 +175,34 @@ func (m *Manager) LoadConfig() error {
 	go func() {
 		channel.CleanupOrphanedFiles()
 		m.ScanThumbnails()
+	}()
+
+	// Periodic orphan cleanup + thumbnail scan
+	if server.Config.OrphanCleanupInterval > 0 {
+		go func() {
+			ticker := time.NewTicker(time.Duration(server.Config.OrphanCleanupInterval) * time.Minute)
+			defer ticker.Stop()
+			for range ticker.C {
+				channel.CleanupOrphanedFiles()
+				m.ScanThumbnails()
+			}
+		}()
+	}
+
+	// File watcher for real-time orphan detection
+	go func() {
+		dirs := []string{"videos"}
+		if server.Config.OutputDir != "" {
+			dirs = append(dirs, server.Config.OutputDir)
+		}
+		fw, err := watcher.New(dirs)
+		if err != nil {
+			log.Printf("[watcher] failed to start: %v", err)
+			return
+		}
+		log.Printf("[watcher] watching %d directories for new video files", len(dirs))
+		// Run until the process exits (channel never closes)
+		fw.Start(make(chan struct{}))
 	}()
 
 	return nil
@@ -327,17 +397,41 @@ func channelSortPriority(c *entity.ChannelInfo) int {
 func (m *Manager) Publish(evt entity.Event, info *entity.ChannelInfo) {
 	switch evt {
 	case entity.EventUpdate:
+		fp := channelInfoFingerprint(info)
+
+		m.renderCacheMu.Lock()
+		cached := m.renderCache[info.Username]
+		if cached != nil && cached.fingerprint == fp {
+			m.renderCacheMu.Unlock()
+			return // nothing changed since last publish
+		}
+
 		var b bytes.Buffer
 		if err := view.InfoTpl.ExecuteTemplate(&b, "channel_info", info); err != nil {
+			m.renderCacheMu.Unlock()
 			fmt.Println("Error executing template:", err)
 			return
 		}
+		html := b.Bytes()
+		m.renderCache[info.Username] = &renderCacheEntry{html: html, fingerprint: fp}
+		m.renderCacheMu.Unlock()
+
 		m.SSE.Publish("updates", &sse.Event{
 			Event: []byte(info.Username + "-info"),
-			Data:  b.Bytes(),
+			Data:  html,
 		})
 	case entity.EventLog:
 		if len(info.Logs) > 0 {
+			m.logRateLimitMu.Lock()
+			last := m.logRateLimit[info.Username]
+			now := time.Now()
+			if now.Sub(last) < time.Second {
+				m.logRateLimit[info.Username] = now
+				m.logRateLimitMu.Unlock()
+				return
+			}
+			m.logRateLimit[info.Username] = now
+			m.logRateLimitMu.Unlock()
 			m.SSE.Publish("updates", &sse.Event{
 				Event: []byte(info.Username + "-log"),
 				Data:  []byte(info.Logs[len(info.Logs)-1]),
@@ -350,6 +444,16 @@ func (m *Manager) PublishLog(username, line string) {
 	if strings.TrimSpace(line) == "" {
 		return
 	}
+	m.logRateLimitMu.Lock()
+	last := m.logRateLimit[username]
+	now := time.Now()
+	if now.Sub(last) < time.Second {
+		m.logRateLimit[username] = now
+		m.logRateLimitMu.Unlock()
+		return
+	}
+	m.logRateLimit[username] = now
+	m.logRateLimitMu.Unlock()
 	m.SSE.Publish("updates", &sse.Event{
 		Event: []byte(username + "-log"),
 		Data:  []byte(line),

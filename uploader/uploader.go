@@ -68,15 +68,47 @@ type UploadResult struct {
 
 // MultiHostUploader handles uploading to multiple hosts simultaneously
 type MultiHostUploader struct {
-        gofile      *GoFileUploader
-        turboviplay *TurboViPlayUploader
-        voesx       *VoeSXUploader
-        sendcm      *SendCMUploader
-        byse        *ByseUploader
-        streamtape  *StreamtapeUploader
-        mixdrop     *MixdropUploader
-        pixeldrain  *PixeldrainUploader
-        log         Logger
+	gofile      *GoFileUploader
+	turboviplay *TurboViPlayUploader
+	voesx       *VoeSXUploader
+	sendcm      *SendCMUploader
+	byse        *ByseUploader
+	streamtape  *StreamtapeUploader
+	mixdrop     *MixdropUploader
+	pixeldrain  *PixeldrainUploader
+	log         Logger
+	hosts       map[string]uploaderFunc // host name -> upload function, lazy-init
+}
+
+type uploaderFunc func(string) (string, error)
+
+func (m *MultiHostUploader) initHosts() {
+	if m.hosts != nil {
+		return
+	}
+	m.hosts = map[string]uploaderFunc{}
+	m.hosts["GoFile"] = m.gofile.Upload
+	if m.turboviplay != nil && m.turboviplay.apiKey != "" {
+		m.hosts["TurboViPlay"] = m.turboviplay.Upload
+	}
+	if m.voesx != nil && m.voesx.apiKey != "" {
+		m.hosts["VOE.sx"] = m.voesx.Upload
+	}
+	if m.sendcm != nil {
+		m.hosts["SendCM"] = m.sendcm.Upload
+	}
+	if m.byse != nil && m.byse.apiKey != "" {
+		m.hosts["Byse"] = m.byse.Upload
+	}
+	if m.streamtape != nil && m.streamtape.login != "" && m.streamtape.key != "" {
+		m.hosts["Streamtape"] = m.streamtape.Upload
+	}
+	if m.mixdrop != nil && m.mixdrop.email != "" && m.mixdrop.token != "" {
+		m.hosts["Mixdrop"] = m.mixdrop.Upload
+	}
+	if m.pixeldrain != nil && m.pixeldrain.token != "" {
+		m.hosts["PixelDrain"] = m.pixeldrain.Upload
+	}
 }
 
 // NewMultiHostUploader creates a new multi-host uploader
@@ -105,191 +137,62 @@ type nilLogger struct{}
 func (n *nilLogger) Info(format string, a ...any) {}
 func (n *nilLogger) Error(format string, a ...any) {}
 
-// UploadToAll uploads a file to all configured hosts in parallel
-// Returns a slice of results, one for each host
+// UploadToAll uploads a file to all configured hosts in parallel.
+// Returns a slice of results, one for each host.
 func (m *MultiHostUploader) UploadToAll(filePath string) []UploadResult {
-        var wg sync.WaitGroup
-        results := []UploadResult{}
-        resultsMu := sync.Mutex{}
+	m.initHosts()
+	hosts := make([]string, 0, len(m.hosts))
+	for name := range m.hosts {
+		hosts = append(hosts, name)
+	}
+	return m.UploadSelected(filePath, hosts)
+}
 
-        // Upload to GoFile
-        wg.Add(1)
-        go func() {
-                defer wg.Done()
-                m.log.Info("upload: starting GoFile upload for %s", filePath)
-                link, err := m.gofile.Upload(filePath)
-                resultsMu.Lock()
-                results = append(results, UploadResult{
-                        Host:         "GoFile",
-                        DownloadLink: link,
-                        Error:        err,
-                })
-                resultsMu.Unlock()
-                if err != nil {
-                        m.log.Error("upload: GoFile failed for %s: %v", filePath, err)
-                } else {
-                        m.log.Info("upload: GoFile successful for %s: %s", filePath, link)
-                }
-        }()
+// UploadSelected uploads a file to the specified hosts in parallel.
+// Host names that are not configured are silently skipped.
+func (m *MultiHostUploader) UploadSelected(filePath string, hosts []string) []UploadResult {
+	m.initHosts()
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	results := []UploadResult{}
 
-        // Upload to TurboViPlay (only if API key is configured)
-        if m.turboviplay != nil && m.turboviplay.apiKey != "" {
-                wg.Add(1)
-                go func() {
-                        defer wg.Done()
-                        m.log.Info("upload: starting TurboViPlay upload for %s", filePath)
-                        link, err := m.turboviplay.Upload(filePath)
-                        resultsMu.Lock()
-                        results = append(results, UploadResult{
-                                Host:         "TurboViPlay",
-                                DownloadLink: link,
-                                Error:        err,
-                        })
-                        resultsMu.Unlock()
-                        if err != nil {
-                                m.log.Error("upload: TurboViPlay failed for %s: %v", filePath, err)
-                        } else {
-                                m.log.Info("upload: TurboViPlay successful for %s: %s", filePath, link)
-                        }
-                }()
-        }
+	for _, name := range hosts {
+		uploadFn, ok := m.hosts[name]
+		if !ok {
+			continue
+		}
+		wg.Add(1)
+		go func(host string, fn uploaderFunc) {
+			defer wg.Done()
+			m.log.Info("upload: starting %s upload for %s", host, filePath)
+			link, err := fn(filePath)
+			mu.Lock()
+			results = append(results, UploadResult{
+				Host:         host,
+				DownloadLink: link,
+				Error:        err,
+			})
+			mu.Unlock()
+			if err != nil {
+				m.log.Error("upload: %s failed for %s: %v", host, filePath, err)
+			} else {
+				m.log.Info("upload: %s successful for %s: %s", host, filePath, link)
+			}
+		}(name, uploadFn)
+	}
 
-        // Upload to VOE.sx (only if API key is configured)
-        if m.voesx != nil && m.voesx.apiKey != "" {
-                wg.Add(1)
-                go func() {
-                        defer wg.Done()
-                        m.log.Info("upload: starting VOE.sx upload for %s", filePath)
-                        link, err := m.voesx.Upload(filePath)
-                        resultsMu.Lock()
-                        results = append(results, UploadResult{
-                                Host:         "VOE.sx",
-                                DownloadLink: link,
-                                Error:        err,
-                        })
-                        resultsMu.Unlock()
-                        if err != nil {
-                                m.log.Error("upload: VOE.sx failed for %s: %v", filePath, err)
-                        } else {
-                                m.log.Info("upload: VOE.sx successful for %s: %s", filePath, link)
-                        }
-                }()
-        }
+	wg.Wait()
+	return results
+}
 
-        // Upload to SendCM (always, guest upload if no API key)
-        if m.sendcm != nil {
-                wg.Add(1)
-                go func() {
-                        defer wg.Done()
-                        m.log.Info("upload: starting SendCM upload for %s", filePath)
-                        link, err := m.sendcm.Upload(filePath)
-                        resultsMu.Lock()
-                        results = append(results, UploadResult{
-                                Host:         "SendCM",
-                                DownloadLink: link,
-                                Error:        err,
-                        })
-                        resultsMu.Unlock()
-                        if err != nil {
-                                m.log.Error("upload: SendCM failed for %s: %v", filePath, err)
-                        } else {
-                                m.log.Info("upload: SendCM successful for %s: %s", filePath, link)
-                        }
-                }()
-        }
-
-        // Upload to Byse (only if API key is configured)
-        if m.byse != nil && m.byse.apiKey != "" {
-                wg.Add(1)
-                go func() {
-                        defer wg.Done()
-                        m.log.Info("upload: starting Byse upload for %s", filePath)
-                        link, err := m.byse.Upload(filePath)
-                        resultsMu.Lock()
-                        results = append(results, UploadResult{
-                                Host:         "Byse",
-                                DownloadLink: link,
-                                Error:        err,
-                        })
-                        resultsMu.Unlock()
-                        if err != nil {
-                                m.log.Error("upload: Byse failed for %s: %v", filePath, err)
-                        } else {
-                                m.log.Info("upload: Byse successful for %s: %s", filePath, link)
-                        }
-                }()
-        }
-
-        // Upload to Streamtape (only if login and key are configured)
-        if m.streamtape != nil && m.streamtape.login != "" && m.streamtape.key != "" {
-                wg.Add(1)
-                go func() {
-                        defer wg.Done()
-                        m.log.Info("upload: starting Streamtape upload for %s", filePath)
-                        link, err := m.streamtape.Upload(filePath)
-                        resultsMu.Lock()
-                        results = append(results, UploadResult{
-                                Host:         "Streamtape",
-                                DownloadLink: link,
-                                Error:        err,
-                        })
-                        resultsMu.Unlock()
-                        if err != nil {
-                                m.log.Error("upload: Streamtape failed for %s: %v", filePath, err)
-                        } else {
-                                m.log.Info("upload: Streamtape successful for %s: %s", filePath, link)
-                        }
-                }()
-        }
-
-        // Upload to Mixdrop (only if email and token are configured)
-        if m.mixdrop != nil && m.mixdrop.email != "" && m.mixdrop.token != "" {
-                wg.Add(1)
-                go func() {
-                        defer wg.Done()
-                        m.log.Info("upload: starting Mixdrop upload for %s", filePath)
-                        link, err := m.mixdrop.Upload(filePath)
-                        resultsMu.Lock()
-                        results = append(results, UploadResult{
-                                Host:         "Mixdrop",
-                                DownloadLink: link,
-                                Error:        err,
-                        })
-                        resultsMu.Unlock()
-                        if err != nil {
-                                m.log.Error("upload: Mixdrop failed for %s: %v", filePath, err)
-                        } else {
-                                m.log.Info("upload: Mixdrop successful for %s: %s", filePath, link)
-                        }
-                }()
-        }
-
-        // Upload to PixelDrain (only if API key configured)
-        if m.pixeldrain != nil && m.pixeldrain.token != "" {
-                wg.Add(1)
-                go func() {
-                        defer wg.Done()
-                        m.log.Info("upload: starting PixelDrain upload for %s", filePath)
-                        link, err := m.pixeldrain.Upload(filePath)
-                        resultsMu.Lock()
-                        results = append(results, UploadResult{
-                                Host:         "PixelDrain",
-                                DownloadLink: link,
-                                Error:        err,
-                        })
-                        resultsMu.Unlock()
-                        if err != nil {
-                                m.log.Error("upload: PixelDrain failed for %s: %v", filePath, err)
-                        } else {
-                                m.log.Info("upload: PixelDrain successful for %s: %s", filePath, link)
-                        }
-                }()
-        }
-
-        // Wait for all uploads to complete
-        wg.Wait()
-
-        return results
+// AvailableHosts returns the names of all configured upload hosts.
+func (m *MultiHostUploader) AvailableHosts() []string {
+	m.initHosts()
+	hosts := make([]string, 0, len(m.hosts))
+	for name := range m.hosts {
+		hosts = append(hosts, name)
+	}
+	return hosts
 }
 
 // GetSuccessfulUploads returns only the successful upload results

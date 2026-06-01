@@ -24,7 +24,7 @@ var postClient = sync.OnceValue(func() *http.Client {
 })
 
 // PostChaturbateAPI makes a POST request to Chaturbate API
-func PostChaturbateAPI(ctx context.Context, username, csrfToken string) (string, error) {
+func PostChaturbateAPI(ctx context.Context, username string) (string, error) {
 	apiURL := fmt.Sprintf("%sget_edge_hls_url_ajax/", server.Config.Domain)
 
 	// Build POST data
@@ -83,7 +83,7 @@ func PostChaturbateAPI(ctx context.Context, username, csrfToken string) (string,
 			}, server.Config.Cookies)
 			sanitized = strings.TrimSpace(sanitized)
 		}
-		csrfToken = CSRFTokenForRequest(sanitized)
+		csrfToken := CSRFTokenForRequest(sanitized)
 		req.Header.Set("X-CSRFToken", csrfToken)
 		req.Header.Set("Cookie", FormatCookieHeader(sanitized, csrfToken))
 

@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/teacat/chaturbate-dvr/channel"
 	"github.com/teacat/chaturbate-dvr/config"
 	"github.com/teacat/chaturbate-dvr/entity"
 	"github.com/teacat/chaturbate-dvr/internal"
@@ -194,6 +195,30 @@ func main() {
 				Usage:   "Delete local recordings and preview files after successful remote upload",
 				EnvVars: []string{"DELETE_LOCAL_AFTER_UPLOAD"},
 				Value:   true,
+			},
+			&cli.IntFlag{
+				Name:    "orphan-cleanup-interval",
+				Usage:   "Minutes between periodic orphan file cleanup and thumbnail scans (0 = disabled, run once at startup)",
+				EnvVars: []string{"ORPHAN_CLEANUP_INTERVAL"},
+				Value:   0,
+			},
+			&cli.IntFlag{
+				Name:    "disk-warning-percent",
+				Usage:   "Log warning when disk usage exceeds this percentage (0 = disabled)",
+				EnvVars: []string{"DISK_WARNING_PERCENT"},
+				Value:   80,
+			},
+			&cli.IntFlag{
+				Name:    "disk-critical-percent",
+				Usage:   "Auto-delete oldest local recordings when disk usage exceeds this percentage (0 = disabled)",
+				EnvVars: []string{"DISK_CRITICAL_PERCENT"},
+				Value:   90,
+			},
+			&cli.IntFlag{
+				Name:    "max-local-age-days",
+				Usage:   "Delete local recordings older than this many days if already uploaded (0 = disabled)",
+				EnvVars: []string{"MAX_LOCAL_AGE_DAYS"},
+				Value:   0,
 			},
 			&cli.StringFlag{
 				Name:    "turboviplay-api-key",
@@ -399,10 +424,16 @@ func start(c *cli.Context) error {
 			return fmt.Errorf("load config: %w", err)
 		}
 
+		// Start background disk monitor
+		go server.StartDiskMonitor(make(chan struct{}))
+
 		return router.SetupRouter().Run(":" + c.String("port"))
 	}
 
 	// else create a channel with the provided username
+	channel.CleanupOrphanedFiles()
+	go server.StartDiskMonitor(make(chan struct{}))
+
 	if err := server.Manager.CreateChannel(&entity.ChannelConfig{
 		Username:    c.String("username"),
 		Framerate:   c.Int("framerate"),

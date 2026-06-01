@@ -1,15 +1,11 @@
 package uploader
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -126,39 +122,22 @@ func (u *ByseUploader) uploadFile(filePath string) (string, error) {
 		return "", fmt.Errorf("get upload server: %w", err)
 	}
 
-	file, err := os.Open(filePath)
+	body, contentLen, contentType, file, err := multipartStream(
+		map[string]string{"key": u.apiKey},
+		"file", filePath,
+	)
 	if err != nil {
-		return "", fmt.Errorf("open file: %w", err)
+		return "", fmt.Errorf("multipart stream: %w", err)
 	}
 	defer file.Close()
-
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-
-	if err := writer.WriteField("key", u.apiKey); err != nil {
-		return "", fmt.Errorf("write key field: %w", err)
-	}
-
-	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
-	if err != nil {
-		return "", fmt.Errorf("create form file: %w", err)
-	}
-
-	if _, err := io.Copy(part, file); err != nil {
-		return "", fmt.Errorf("copy file: %w", err)
-	}
-
-	if err := writer.Close(); err != nil {
-		return "", fmt.Errorf("close writer: %w", err)
-	}
 
 	req, err := http.NewRequest("POST", uploadServer, body)
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("User-Agent", defaultUserAgent)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	req.ContentLength = int64(body.Len())
+	req.Header.Set("Content-Type", contentType)
+	req.ContentLength = contentLen
 
 	resp, err := u.client.Do(req)
 	if err != nil {

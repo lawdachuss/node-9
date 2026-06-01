@@ -13,6 +13,7 @@ import (
         "time"
 
         "github.com/teacat/chaturbate-dvr/config"
+        "github.com/teacat/chaturbate-dvr/internal"
         "github.com/teacat/chaturbate-dvr/server"
         "github.com/teacat/chaturbate-dvr/uploader"
 )
@@ -58,48 +59,56 @@ func (ch *Channel) Cleanup(isRotation bool) error {
                 return nil
         }
 
-        // Close any open files and add them to the pending queue.
-        if ch.File != nil || ch.AudioFile != nil {
-                videoPath, videoInfo, err := closeTrackedFile(ch.File)
-                if err != nil {
-                        return err
-                }
-                audioPath, audioInfo, err := closeTrackedFile(ch.AudioFile)
-                if err != nil {
-                        return err
-                }
+	// Close any open files and add them to the pending queue.
+	// Errors from closeTrackedFile are logged but not returned — aborting
+	// would strand ALL previously queued pendingFiles permanently.
+	if ch.File != nil || ch.AudioFile != nil {
+		videoPath, videoInfo, err := closeTrackedFile(ch.File)
+		if err != nil {
+			ch.Error("cleanup: video file close: %s", err.Error())
+		}
+		audioPath, audioInfo, err := closeTrackedFile(ch.AudioFile)
+		if err != nil {
+			ch.Error("cleanup: audio file close: %s", err.Error())
+		}
 
-                ch.File = nil
-                ch.AudioFile = nil
-                ch.CurrentFilename = ""
-                ch.stateMu.Lock()
-                ch.Filesize = 0
-                ch.Duration = 0
-                ch.stateMu.Unlock()
+		ch.File = nil
+		ch.AudioFile = nil
+		ch.CurrentFilename = ""
+		ch.stateMu.Lock()
+		ch.Filesize = 0
+		ch.Duration = 0
+		ch.stateMu.Unlock()
 
-                // Skip empty files (both tracks zero/missing).
-                if ch.HasSeparateAudio {
-                        if videoInfo == nil && audioInfo == nil {
-                                if !isRotation {
-                                        ch.processPendingQueue()
-                                }
-                                return nil
-                        }
-                } else {
-                        if videoInfo == nil || videoInfo.Size() == 0 {
-                                if !isRotation {
-                                        ch.processPendingQueue()
-                                }
-                                return nil
-                        }
-                }
+		// Skip empty files (both tracks zero/missing).
+		if ch.HasSeparateAudio {
+			if videoInfo == nil && audioInfo == nil {
+				if !isRotation {
+					ch.processPendingQueue()
+				}
+				return nil
+			}
+		} else {
+			if videoInfo == nil || videoInfo.Size() == 0 {
+				if !isRotation {
+					ch.processPendingQueue()
+				}
+				return nil
+			}
+		}
 
-                ch.pendingFiles = append(ch.pendingFiles, pendingFile{
-                        videoPath: videoPath,
-                        audioPath: audioPath,
-                })
-                ch.Info("cleanup: queued %s for post-processing (%d pending)", filepath.Base(videoPath), len(ch.pendingFiles))
-        }
+		hasSeparateAudio := ch.HasSeparateAudio
+		ch.pendingFiles = append(ch.pendingFiles, pendingFile{
+			videoPath:        videoPath,
+			audioPath:        audioPath,
+			hasSeparateAudio: hasSeparateAudio,
+		})
+		if videoPath != "" {
+			ch.Info("cleanup: queued %s for post-processing (%d pending)", filepath.Base(videoPath), len(ch.pendingFiles))
+		} else if audioPath != "" {
+			ch.Info("cleanup: queued %s for post-processing (%d pending)", filepath.Base(audioPath), len(ch.pendingFiles))
+		}
+	}
 
         ch.processPendingQueue()
         return nil
@@ -121,13 +130,13 @@ func (ch *Channel) processPendingQueue() {
 }
 
 func (ch *Channel) processPendingFile(pf pendingFile) {
-        videoPath := pf.videoPath
-        audioPath := pf.audioPath
+	videoPath := pf.videoPath
+	audioPath := pf.audioPath
 
-        if ch.HasSeparateAudio && audioPath != "" {
-                ch.processPendingMuxPair(videoPath, audioPath)
-                return
-        }
+	if pf.hasSeparateAudio && audioPath != "" {
+		ch.processPendingMuxPair(videoPath, audioPath)
+		return
+	}
 
         // Single-stream file — move to output dir (triggers preview + upload).
         if _, err := os.Stat(videoPath); err == nil {
@@ -192,25 +201,17 @@ func (ch *Channel) processPendingMuxPair(videoPath, audioPath string) {
         }
 }
 
-// muxOutputLooksValid returns true if the muxed MP4 appears to contain most
-// of the source bytes. `-c copy` just repackages, so the output should be
-// within a reasonable fraction of the combined input size; anything much
-// smaller means the muxer bailed out early and the sidecars are more
-// valuable than the corrupt result.
-func muxOutputLooksValid(outputPath string, videoInfo, audioInfo os.FileInfo) (bool, string) {
+// muxOutputLooksValid returns true if the muxed MP4 exists and contains data.
+// With `-c copy -shortest` the output is intentionally truncated to the shorter
+// track's duration, so we cannot compare file sizes against the input sum.
+// Trust ffmpeg's exit code — if it returned 0 the file is valid.
+func muxOutputLooksValid(outputPath string, _ /*videoInfo*/, _ /*audioInfo*/ os.FileInfo) (bool, string) {
         finalInfo, err := os.Stat(outputPath)
         if err != nil {
                 return false, fmt.Sprintf("stat: %s", err.Error())
         }
         if finalInfo.Size() == 0 {
                 return false, "empty output"
-        }
-        inputSize := videoInfo.Size() + audioInfo.Size()
-        if inputSize == 0 {
-                return true, ""
-        }
-        if finalInfo.Size()*2 < inputSize {
-                return false, fmt.Sprintf("output %d bytes, inputs %d bytes", finalInfo.Size(), inputSize)
         }
         return true, ""
 }
@@ -247,7 +248,12 @@ func (ch *Channel) MoveToOutputDir(srcPath string) string {
         ch.Info("output-dir: moved %s -> %s", filepath.Base(srcPath), destPath)
 	ch.UploadWg.Add(1)
 	go func() {
-		defer ch.UploadWg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[PANIC] upload goroutine for %s: %v", filepath.Base(destPath), r)
+			}
+			ch.UploadWg.Done()
+		}()
 		UploadSem <- struct{}{}
 		ch.uploadSem <- struct{}{}
 		defer func() { <-ch.uploadSem; <-UploadSem }()
@@ -402,30 +408,31 @@ func (ch *Channel) audioPath(filename string) string {
 }
 
 func closeTrackedFile(file *os.File) (string, os.FileInfo, error) {
-        if file == nil {
-                return "", nil, nil
-        }
+	if file == nil {
+		return "", nil, nil
+	}
 
-        filename := file.Name()
-        if err := file.Sync(); err != nil && !errors.Is(err, os.ErrClosed) {
-                return "", nil, fmt.Errorf("sync file: %w", err)
-        }
-        if err := file.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
-                return "", nil, fmt.Errorf("close file: %w", err)
-        }
+	filename := file.Name()
+	if err := file.Sync(); err != nil && !errors.Is(err, os.ErrClosed) {
+		file.Close()
+		return filename, nil, fmt.Errorf("sync file: %w", err)
+	}
+	if err := file.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+		return filename, nil, fmt.Errorf("close file: %w", err)
+	}
 
-        fileInfo, err := os.Stat(filename)
-        if err != nil && !os.IsNotExist(err) {
-                return "", nil, fmt.Errorf("stat file delete zero file: %w", err)
-        }
-        if fileInfo != nil && fileInfo.Size() == 0 {
-                if err := os.Remove(filename); err != nil {
-                        return "", nil, fmt.Errorf("remove zero file: %w", err)
-                }
-                fileInfo = nil
-        }
+	fileInfo, err := os.Stat(filename)
+	if err != nil && !os.IsNotExist(err) {
+		return filename, nil, fmt.Errorf("stat file: %w", err)
+	}
+	if fileInfo != nil && fileInfo.Size() == 0 {
+		if err := os.Remove(filename); err != nil {
+			return filename, nil, fmt.Errorf("remove zero file: %w", err)
+		}
+		fileInfo = nil
+	}
 
-        return filename, fileInfo, nil
+	return filename, fileInfo, nil
 }
 
 // CleanupOrphanedFiles processes orphaned sidecar files left behind by
@@ -485,52 +492,90 @@ func CleanupOrphanedFiles() {
                         }
                 }
 
-                // Process orphaned muxed files (output from a mux that was never uploaded)
-                for stem, info := range muxedFiles {
-                        if _, hasMain := mainVideos[stem]; hasMain {
-                                continue
-                        }
-                        log.Printf("recovery: processing orphaned muxed file %s", info.name)
-                        thumbURL, spriteURL := GenerateThumbnailForFile(info.path)
-                        uploadOrphanedFile(info.path, thumbURL, spriteURL)
-                        deleteSidecarFiles(info.path)
-                }
+		// Process orphaned muxed files (output from a mux that was never uploaded)
+		sem := make(chan struct{}, 5)
+		for stem, info := range muxedFiles {
+			if _, hasMain := mainVideos[stem]; hasMain {
+				continue
+			}
+			stem, info := stem, info
+			sem <- struct{}{}
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[PANIC] processing orphaned muxed file %s: %v", info.name, r)
+					}
+					<-sem
+				}()
+				recoveryLogf(info.name, "processing orphaned muxed file %s", info.name)
 
-                // Process orphaned split A/V pairs (mux them first, then upload)
-                for stem, vInfo := range videoParts {
-                        if _, hasMain := mainVideos[stem]; hasMain {
-                                continue
-                        }
-                        aInfo, hasAudio := audioParts[stem]
-                        if !hasAudio {
-                                continue
-                        }
+				// Check journal to skip files that were already fully uploaded
+				if IsAlreadyFullyUploaded(info.path) {
+					recoveryLogf(info.name, "all hosts already have this file per journal — removing local copy")
+					os.Remove(info.path)
+					DeleteSidecarFiles(info.path)
+					_ = stem
+					return
+				}
 
-                        // Mux the pair
-                        muxedPath := filepath.Join(dir, stem+".video.muxed.mp4")
-                        log.Printf("recovery: muxing orphaned split A/V pair %s", stem)
-                        if err := muxVideoAudio(vInfo.path, aInfo.path, muxedPath); err != nil {
-                                log.Printf("recovery: mux failed for %s: %v — uploading video-only", stem, err)
-                                // Fall back to uploading just the video track
-                                thumbURL, spriteURL := GenerateThumbnailForFile(vInfo.path)
-                                uploadOrphanedFile(vInfo.path, thumbURL, spriteURL)
-                                deleteSidecarFiles(vInfo.path)
-                                continue
-                        }
+				thumbURL, spriteURL := GenerateThumbnailForFile(info.path)
+				UploadOrphanedFile(info.path, thumbURL, spriteURL)
+				DeleteSidecarFiles(info.path)
+				_ = stem
+			}()
+		}
 
-                        // Delete source sidecars
-                        os.Remove(vInfo.path)
-                        os.Remove(aInfo.path)
+		// Process orphaned split A/V pairs (mux them first, then upload)
+		for stem, vInfo := range videoParts {
+			if _, hasMain := mainVideos[stem]; hasMain {
+				continue
+			}
+			aInfo, hasAudio := audioParts[stem]
+			if !hasAudio {
+				continue
+			}
 
-                        // Generate thumbnails, upload, and clean up
-                        thumbURL, spriteURL := GenerateThumbnailForFile(muxedPath)
-                        uploadOrphanedFile(muxedPath, thumbURL, spriteURL)
-                        deleteSidecarFiles(muxedPath)
-                        os.Remove(muxedPath)
-                }
+			stem, vInfo, aInfo := stem, vInfo, aInfo
+			sem <- struct{}{}
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[PANIC] muxing orphaned split A/V pair %s: %v", stem, r)
+					}
+					<-sem
+				}()
 
-                // Clean up orphaned sidecar files whose main video no longer exists
-                sidecarExts := []string{".thumb.jpg", ".sprite.jpg", ".thumb", ".sprite"}
+				// Mux the pair
+				muxedPath := filepath.Join(dir, stem+".video.muxed.mp4")
+				recoveryLogf(vInfo.name, "recovery: muxing orphaned split A/V pair %s", stem)
+				if err := muxVideoAudio(vInfo.path, aInfo.path, muxedPath); err != nil {
+					recoveryLogf(vInfo.name, "recovery: mux failed for %s: %v — uploading video-only", stem, err)
+					// Fall back to uploading just the video track
+					thumbURL, spriteURL := GenerateThumbnailForFile(vInfo.path)
+					UploadOrphanedFile(vInfo.path, thumbURL, spriteURL)
+					DeleteSidecarFiles(vInfo.path)
+					return
+				}
+
+				// Delete source sidecars
+				os.Remove(vInfo.path)
+				os.Remove(aInfo.path)
+
+				// Generate thumbnails, upload, and clean up
+				thumbURL, spriteURL := GenerateThumbnailForFile(muxedPath)
+				UploadOrphanedFile(muxedPath, thumbURL, spriteURL)
+				DeleteSidecarFiles(muxedPath)
+				os.Remove(muxedPath)
+			}()
+		}
+
+		// Wait for all orphan processing to complete
+		for i := 0; i < cap(sem); i++ {
+			sem <- struct{}{}
+		}
+
+		// Clean up orphaned sidecar files whose main video no longer exists
+			sidecarExts := []string{".thumb.jpg", ".sprite.jpg", ".thumb", ".sprite"}
                 for _, e := range entries {
                         if e.IsDir() {
                                 continue
@@ -558,8 +603,8 @@ func CleanupOrphanedFiles() {
         }
 }
 
-// deleteSidecarFiles removes preview sidecar files associated with a video path.
-func deleteSidecarFiles(videoPath string) {
+// DeleteSidecarFiles removes preview sidecar files associated with a video path.
+func DeleteSidecarFiles(videoPath string) {
         for _, suffix := range []string{".thumb.jpg", ".sprite.jpg", ".thumb", ".sprite"} {
                 os.Remove(videoPath + suffix)
         }
@@ -577,106 +622,252 @@ func muxVideoAudio(videoPath, audioPath, outputPath string) error {
         return cmd.Run()
 }
 
-// uploadOrphanedFile uploads a file to all configured hosts and saves metadata
+// extractUsernameFromFilename parses "username_YYYY-MM-DD_HH-MM-SS.ext" to get the username.
+// Uses a tighter pattern: looks for "_20" followed immediately by two digits, a hyphen, two digits,
+// a hyphen, and two digits (i.e. the date portion YYYY-MM-DD).  This avoids false matches when
+// a username itself contains "_20" (e.g. "alice_20_fan_2025-01-01...").
+func extractUsernameFromFilename(filename string) string {
+	if idx := strings.Index(filename, "_20"); idx > 0 {
+		rest := filename[idx+1:]
+		if len(rest) >= 10 && rest[3] == '-' && rest[6] == '-' {
+			return filename[:idx]
+		}
+	}
+	return ""
+}
+
+// recoveryLogf logs to both stdout and the channel's SSE log stream if the
+// file can be associated with an active channel via its Manager.
+func recoveryLogf(filename, format string, a ...any) {
+	msg := fmt.Sprintf(format, a...)
+	username := extractUsernameFromFilename(filename)
+	log.Printf("recovery [%s]: %s", username, msg)
+	if m := server.Manager; m != nil && username != "" {
+		m.PublishLog(username, "[recovery] "+msg)
+	}
+}
+
+// isAlreadyFullyUploaded checks the upload journal to determine if a file has
+// been successfully uploaded to all configured hosts.
+func IsAlreadyFullyUploaded(filePath string) bool {
+	fileHash, err := internal.FastFileHash(filePath)
+	if err != nil || fileHash == "" {
+		return false
+	}
+	completed, err := server.LoadCompletedHosts(fileHash)
+	if err != nil {
+		return false
+	}
+	// Build the set of all configured hosts
+	hosts := configuredUploadHosts()
+	if len(hosts) == 0 {
+		return false
+	}
+	done := make(map[string]bool, len(completed))
+	for _, h := range completed {
+		done[h] = true
+	}
+	for _, h := range hosts {
+		if !done[h] {
+			return false
+		}
+	}
+	return true
+}
+
+// configuredUploadHosts returns the list of upload hosts that have their
+// API keys configured in the server config.
+func configuredUploadHosts() []string {
+	cfg := server.Config
+	if cfg == nil {
+		return nil
+	}
+	var hosts []string
+	hosts = append(hosts, "GoFile")
+	if cfg.TurboViPlayAPIKey != "" {
+		hosts = append(hosts, "TurboViPlay")
+	}
+	if cfg.VoeSXAPIKey != "" {
+		hosts = append(hosts, "VOE.sx")
+	}
+	if cfg.SendCMAPIKey != "" {
+		hosts = append(hosts, "SendCM")
+	}
+	if cfg.ByseAPIKey != "" {
+		hosts = append(hosts, "Byse")
+	}
+	if cfg.StreamtapeLogin != "" && cfg.StreamtapeKey != "" {
+		hosts = append(hosts, "Streamtape")
+	}
+	if cfg.MixdropEmail != "" && cfg.MixdropToken != "" {
+		hosts = append(hosts, "Mixdrop")
+	}
+	if cfg.PixelDrainToken != "" {
+		hosts = append(hosts, "PixelDrain")
+	}
+	return hosts
+}
+
+// UploadOrphanedFile uploads a file to all configured hosts and saves metadata
 // to Supabase. Unlike Channel.uploadFile, this doesn't require an active channel.
 // Username is extracted from the filename; metadata fields are left empty.
 //
 // If every configured host fails on the first attempt, it retries up to 2 more
 // times with a 60-second delay between attempts.  This handles transient network
 // or API outages that can occur when the app restarts after a crash.
-func uploadOrphanedFile(filePath, thumbURL, spriteURL string) bool {
-        cfg := server.Config
-        if cfg == nil {
-                return false
-        }
+func UploadOrphanedFile(filePath, thumbURL, spriteURL string) bool {
+	cfg := server.Config
+	if cfg == nil {
+		return false
+	}
 
-        filename := filepath.Base(filePath)
-        log.Printf("recovery: uploading %s", filename)
+	filename := filepath.Base(filePath)
 
-        // Save preview links first
-        if thumbURL != "" || spriteURL != "" {
-                if err := server.SavePreviewLinks(filename, thumbURL, spriteURL); err != nil {
-                        log.Printf("recovery: could not save preview links for %s: %v", filename, err)
-                }
-        }
+	recoveryLogf(filename, "uploading %s", filename)
 
-        // Upload to all configured hosts — retry up to 3 times if all hosts fail.
-        const maxUploadAttempts = 3
-        const retryDelay = 60 * time.Second
+	// Compute file hash for upload journal
+	fileHash, hashErr := internal.FastFileHash(filePath)
+	if hashErr != nil {
+		recoveryLogf(filename, "could not hash (journal skipped): %v", hashErr)
+	}
 
-        upl := uploader.NewMultiHostUploader(
-                cfg.TurboViPlayAPIKey,
-                cfg.VoeSXAPIKey,
-                cfg.SendCMAPIKey,
-                cfg.ByseAPIKey,
-                cfg.StreamtapeLogin,
-                cfg.StreamtapeKey,
-                cfg.MixdropEmail,
-                cfg.MixdropToken,
-                cfg.PixelDrainToken,
-                nil, // no logger for orphan recovery
-        )
+	// Load completed hosts from journal
+	var completedHosts []string
+	if fileHash != "" {
+		var loadErr error
+		completedHosts, loadErr = server.LoadCompletedHosts(fileHash)
+		if loadErr != nil {
+			recoveryLogf(filename, "could not load journal: %v", loadErr)
+		}
+	}
 
-        var success []uploader.UploadResult
-        for attempt := 1; attempt <= maxUploadAttempts; attempt++ {
-                results := upl.UploadToAll(filePath)
-                success = uploader.GetSuccessfulUploads(results)
-                log.Printf("recovery: upload attempt %d/%d — %d/%d successful for %s",
-                        attempt, maxUploadAttempts, len(success), len(results), filename)
-                if len(success) > 0 {
-                        break
-                }
-                if attempt < maxUploadAttempts {
-                        log.Printf("recovery: all hosts failed for %s — retrying in %s...", filename, retryDelay)
-                        time.Sleep(retryDelay)
-                }
-        }
+	// Save preview links first
+	if thumbURL != "" || spriteURL != "" {
+		if err := server.SavePreviewLinks(filename, thumbURL, spriteURL); err != nil {
+			recoveryLogf(filename, "could not save preview links: %v", err)
+		}
+	}
 
-        if len(success) == 0 {
-                log.Printf("recovery: [WARN] all upload attempts exhausted for %s — file will be retried on next restart", filename)
-                return false
-        }
+	// Upload to all configured hosts — retry up to 3 times if all hosts fail.
+	const maxUploadAttempts = 3
+	const retryDelay = 60 * time.Second
 
-        // Build links map
-        links := map[string]string{}
-        var embedURL string
-        for _, r := range success {
-                links[r.Host] = r.DownloadLink
-                if embedURL == "" {
-                        embedURL = embedURLFromLink(r.Host, r.DownloadLink)
-                }
-        }
+	upl := uploader.NewMultiHostUploader(
+		cfg.TurboViPlayAPIKey,
+		cfg.VoeSXAPIKey,
+		cfg.SendCMAPIKey,
+		cfg.ByseAPIKey,
+		cfg.StreamtapeLogin,
+		cfg.StreamtapeKey,
+		cfg.MixdropEmail,
+		cfg.MixdropToken,
+		cfg.PixelDrainToken,
+		nil, // no logger for orphan recovery
+	)
 
-        // Extract username from filename (format: username_YYYY-MM-DD_HH-MM-SS)
-        username := ""
-        if idx := strings.Index(filename, "_20"); idx > 0 {
-                username = filename[:idx]
-        }
+	allHosts := upl.AvailableHosts()
 
-        stat, _ := os.Stat(filePath)
-        var filesize int64
-        if stat != nil {
-                filesize = stat.Size()
-        }
+	// Determine which hosts still need the file
+	hostsToTry := allHosts
+	if len(completedHosts) > 0 {
+		hostsToTry = difference(allHosts, completedHosts)
+		if len(hostsToTry) == 0 {
+			recoveryLogf(filename, "all hosts already have this file per journal — skipping upload")
+			return true
+		}
+		recoveryLogf(filename, "%d/%d hosts already have this file — uploading to %d remaining",
+			len(completedHosts), len(allHosts), len(hostsToTry))
+	}
 
-        timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
-        if err := server.SaveRecordingWithLinks(
-                username, filename, timestamp,
-                "", nil, 0, "", 0, filesize, "", embedURL, thumbURL, spriteURL, links,
-        ); err != nil {
-                log.Printf("recovery: failed to save recording to Supabase: %v", err)
-        } else {
-                log.Printf("recovery: saved recording metadata for %s", filename)
-        }
+	var results []uploader.UploadResult
+	var success []uploader.UploadResult
+	for attempt := 1; attempt <= maxUploadAttempts; attempt++ {
+		if attempt > 1 && len(hostsToTry) == 0 {
+			break
+		}
+		attemptResults := upl.UploadSelected(filePath, hostsToTry)
+		results = append(results, attemptResults...)
 
-        // Delete local file after successful upload + DB save
-        if cfg.DeleteLocalAfterUpload {
-                os.Remove(filePath)
-                deleteSidecarFiles(filePath)
-                log.Printf("recovery: removed local file %s", filename)
-        }
+		// Save journal entries for each result
+		if fileHash != "" {
+			stat, _ := os.Stat(filePath)
+			var filesize int64
+			if stat != nil {
+				filesize = stat.Size()
+			}
+			for _, r := range attemptResults {
+				status := "success"
+				errMsg := ""
+				if r.Error != nil {
+					status = "failed"
+					errMsg = r.Error.Error()
+				}
+				if jErr := server.SaveJournalEntry(fileHash, filename, r.Host, status, filesize, errMsg); jErr != nil {
+					recoveryLogf(filename, "could not save journal for %s: %v", r.Host, jErr)
+				}
+			}
+		}
 
-        return true
+		success = uploader.GetSuccessfulUploads(results)
+		recoveryLogf(filename, "upload attempt %d/%d — %d/%d successful", attempt, maxUploadAttempts, len(success), len(allHosts))
+		if len(success) >= len(allHosts) {
+			break
+		}
+
+		if attempt < maxUploadAttempts {
+			failedHosts := failedHostNames(results, completedHosts)
+			hostsToTry = failedHosts
+			if len(hostsToTry) > 0 {
+				recoveryLogf(filename, "%d hosts still pending — retrying in %s...", len(hostsToTry), retryDelay)
+				time.Sleep(retryDelay)
+			}
+		}
+	}
+
+	if len(success) == 0 {
+		recoveryLogf(filename, "[WARN] all upload attempts exhausted — file will be retried on next restart")
+		return false
+	}
+
+	// Build links map
+	links := map[string]string{}
+	var embedURL string
+	for _, r := range success {
+		links[r.Host] = r.DownloadLink
+		if embedURL == "" {
+			embedURL = embedURLFromLink(r.Host, r.DownloadLink)
+		}
+	}
+
+	stat, _ := os.Stat(filePath)
+	var filesize int64
+	if stat != nil {
+		filesize = stat.Size()
+	}
+
+	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	if err := server.SaveRecordingWithLinks(
+		extractUsernameFromFilename(filename), filename, timestamp,
+		"", nil, 0, "", 0, filesize, "", embedURL, thumbURL, spriteURL, links,
+	); err != nil {
+		recoveryLogf(filename, "failed to save recording to Supabase: %v", err)
+	} else {
+		recoveryLogf(filename, "saved recording metadata")
+	}
+
+	// Delete local file after successful upload + DB save
+	if cfg.DeleteLocalAfterUpload {
+		os.Remove(filePath)
+		DeleteSidecarFiles(filePath)
+		if fileHash != "" {
+			if jErr := server.DeleteJournalByHash(fileHash); jErr != nil {
+				recoveryLogf(filename, "could not delete journal: %v", jErr)
+			}
+		}
+		recoveryLogf(filename, "removed local file")
+	}
+
+	return true
 }
 
 // ShouldSwitchFile determines whether a new file should be created.

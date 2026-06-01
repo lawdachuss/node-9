@@ -98,7 +98,7 @@ func ffmpegBin() string {
 }
 
 // ffprobeBin returns the configured ffprobe path by deriving it from ffmpeg
-// path, or "ffprobe" as fallback.
+// path, or "ffprobe" (or "ffprobe.exe" on Windows) as fallback.
 func ffprobeBin() string {
 	if ffmpegPath != "" {
 		dir := filepath.Dir(ffmpegPath)
@@ -108,6 +108,9 @@ func ffprobeBin() string {
 	if p := autoDetectFFmpeg(); p != "" {
 		dir := filepath.Dir(p)
 		return filepath.Join(dir, "ffprobe")
+	}
+	if runtime.GOOS == "windows" {
+		return "ffprobe.exe"
 	}
 	return "ffprobe"
 }
@@ -184,6 +187,10 @@ func New(c *cli.Context) (*entity.Config, error) {
 		OutputDir:              c.String("output-dir"),
 		PerModelFolder:         c.Bool("per-model-folder"),
 		DeleteLocalAfterUpload: c.Bool("delete-local-after-upload"),
+		OrphanCleanupInterval:  c.Int("orphan-cleanup-interval"),
+		DiskWarningPercent:     c.Int("disk-warning-percent"),
+		DiskCriticalPercent:    c.Int("disk-critical-percent"),
+		MaxLocalAgeDays:        c.Int("max-local-age-days"),
 		TurboViPlayAPIKey:      c.String("turboviplay-api-key"),
 		VoeSXAPIKey:            c.String("voesx-api-key"),
 		SendCMAPIKey:           c.String("sendcm-api-key"),

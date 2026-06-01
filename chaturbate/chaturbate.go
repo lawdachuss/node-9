@@ -155,9 +155,7 @@ func FetchStream(ctx context.Context, client *internal.Req, username string, roo
 // stall to reconnect as fast as possible.
 func fetchStream(ctx context.Context, client *internal.Req, username string, roomInfo *APIResponse, skipEdgeCheck bool) (*Stream, string, error) {
 	// Try POST API first
-	csrfToken := fmt.Sprintf("%016x%016x", time.Now().UnixNano(), time.Now().UnixNano()^0xDEADBEEF)
-
-	body, err := internal.PostChaturbateAPI(ctx, username, csrfToken)
+	body, err := internal.PostChaturbateAPI(ctx, username)
 	if err != nil {
 		// Try the GET API as fallback
 		resp, apiErr := fetchAPIResponse(ctx, client, username)

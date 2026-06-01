@@ -22,8 +22,8 @@ const (
 
 // GPU encoder detection cache
 var (
-        detectedEncoder     string
-        detectedEncoderOnce sync.Once
+	detectedEncoder     videoEncoder
+	detectedEncoderOnce sync.Once
 )
 
 // videoEncoder represents a video encoder configuration
@@ -64,18 +64,11 @@ func detectEncoder() (videoEncoder, string) {
 
 // getEncoder returns the cached encoder or detects one
 func getEncoder() videoEncoder {
-        detectedEncoderOnce.Do(func() {
-                enc, name := detectEncoder()
-                detectedEncoder = name
-                _ = enc // stored via name lookup
-        })
-
-        for _, enc := range availableEncoders {
-                if enc.name == detectedEncoder {
-                        return enc
-                }
-        }
-        return availableEncoders[len(availableEncoders)-1]
+	detectedEncoderOnce.Do(func() {
+		enc, _ := detectEncoder()
+		detectedEncoder = enc
+	})
+	return detectedEncoder
 }
 
 // CompressFile compresses a video file (.ts or .mp4) to .mkv format using ffmpeg in the background.
