@@ -11,8 +11,8 @@ type imageHost struct {
 	upload func(string) (string, error)
 }
 
-// MultiImageUploader uploads thumbnails/sprites with durable fallbacks:
-// Freeimage → Catbox → Pixhost (NSFW fallback).
+// MultiImageUploader uploads thumbnails/sprites in parallel to all hosts:
+// Freeimage → ImgBB → Catbox → Pixhost (NSFW fallback).
 type MultiImageUploader struct {
 	hosts []imageHost
 }
@@ -20,11 +20,13 @@ type MultiImageUploader struct {
 // NewMultiImageUploader creates the default thumbnail upload chain.
 func NewMultiImageUploader() *MultiImageUploader {
 	freeimage := NewFreeimageUploader()
+	imgbb := NewImgBBUploader()
 	catbox := NewCatboxUploader()
 	pixhost := NewThumbnailUploader("")
 
 	hosts := []imageHost{
 		{name: "Freeimage", upload: freeimage.Upload},
+		{name: "ImgBB", upload: imgbb.Upload},
 		{name: "Catbox", upload: catbox.Upload},
 		{name: "Pixhost", upload: pixhost.Upload},
 	}
