@@ -31,11 +31,6 @@ func embedURLFromLink(host, link string) string {
 		return link
 	case "Mixdrop":
 		return link
-	case "TurboViPlay":
-		code := link[strings.LastIndex(link, "/")+1:]
-		if code != "" {
-			return "https://emturbovid.com/e/" + code
-		}
 	}
 	return ""
 }
@@ -84,7 +79,6 @@ func (ch *Channel) uploadFile(filePath string, thumbURL, spriteURL, previewURL s
 
 	// Create the uploader with the channel as its logger
 	upl := uploader.NewMultiHostUploader(
-		cfg.TurboViPlayAPIKey,
 		cfg.VoeSXAPIKey,
 		cfg.SendCMAPIKey,
 		cfg.ByseAPIKey,

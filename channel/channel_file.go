@@ -684,9 +684,6 @@ func configuredUploadHosts() []string {
 	}
 	var hosts []string
 	hosts = append(hosts, "GoFile")
-	if cfg.TurboViPlayAPIKey != "" {
-		hosts = append(hosts, "TurboViPlay")
-	}
 	if cfg.VoeSXAPIKey != "" {
 		hosts = append(hosts, "VOE.sx")
 	}
@@ -753,7 +750,6 @@ func UploadOrphanedFile(filePath, thumbURL, spriteURL, previewURL string) bool {
 	const retryDelay = 60 * time.Second
 
 	upl := uploader.NewMultiHostUploader(
-		cfg.TurboViPlayAPIKey,
 		cfg.VoeSXAPIKey,
 		cfg.SendCMAPIKey,
 		cfg.ByseAPIKey,

@@ -174,7 +174,6 @@ func New(c *cli.Context) (*entity.Config, error) {
 		DiskWarningPercent:     c.Int("disk-warning-percent"),
 		DiskCriticalPercent:    c.Int("disk-critical-percent"),
 		MaxLocalAgeDays:        c.Int("max-local-age-days"),
-		TurboViPlayAPIKey:      c.String("turboviplay-api-key"),
 		VoeSXAPIKey:            c.String("voesx-api-key"),
 		SendCMAPIKey:           c.String("sendcm-api-key"),
 		ByseAPIKey:             c.String("byse-api-key"),

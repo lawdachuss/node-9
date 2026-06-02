@@ -103,7 +103,6 @@ func main() {
 	server.Config = &entity.Config{
 		SupabaseURL:       os.Getenv("SUPABASE_URL"),
 		SupabaseAPIKey:    os.Getenv("SUPABASE_API_KEY"),
-		TurboViPlayAPIKey: os.Getenv("TURBOVIPLAY_API_KEY"),
 		VoeSXAPIKey:       os.Getenv("VOESX_API_KEY"),
 		SendCMAPIKey:      os.Getenv("SENDCM_API_KEY"),
 		ByseAPIKey:        os.Getenv("BYSE_API_KEY"),
@@ -189,7 +188,6 @@ func main() {
 		}
 
 		upl := uploader.NewMultiHostUploader(
-			server.Config.TurboViPlayAPIKey,
 			server.Config.VoeSXAPIKey,
 			server.Config.SendCMAPIKey,
 			server.Config.ByseAPIKey,

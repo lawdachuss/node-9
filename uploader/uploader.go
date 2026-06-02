@@ -68,16 +68,15 @@ type UploadResult struct {
 
 // MultiHostUploader handles uploading to multiple hosts simultaneously
 type MultiHostUploader struct {
-	gofile      *GoFileUploader
-	turboviplay *TurboViPlayUploader
-	voesx       *VoeSXUploader
-	sendcm      *SendCMUploader
-	byse        *ByseUploader
-	streamtape  *StreamtapeUploader
-	mixdrop     *MixdropUploader
-	pixeldrain  *PixeldrainUploader
-	log         Logger
-	hosts       map[string]uploaderFunc // host name -> upload function, lazy-init
+	gofile     *GoFileUploader
+	voesx      *VoeSXUploader
+	sendcm     *SendCMUploader
+	byse       *ByseUploader
+	streamtape *StreamtapeUploader
+	mixdrop    *MixdropUploader
+	pixeldrain *PixeldrainUploader
+	log        Logger
+	hosts      map[string]uploaderFunc // host name -> upload function, lazy-init
 }
 
 type uploaderFunc func(string) (string, error)
@@ -88,9 +87,6 @@ func (m *MultiHostUploader) initHosts() {
 	}
 	m.hosts = map[string]uploaderFunc{}
 	m.hosts["GoFile"] = m.gofile.Upload
-	if m.turboviplay != nil && m.turboviplay.apiKey != "" {
-		m.hosts["TurboViPlay"] = m.turboviplay.Upload
-	}
 	if m.voesx != nil && m.voesx.apiKey != "" {
 		m.hosts["VOE.sx"] = m.voesx.Upload
 	}
@@ -112,20 +108,19 @@ func (m *MultiHostUploader) initHosts() {
 }
 
 // NewMultiHostUploader creates a new multi-host uploader
-func NewMultiHostUploader(turboViPlayAPIKey, voeSXAPIKey, sendCMAPIKey, byseAPIKey, streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken, pixeldrainToken string, log Logger) *MultiHostUploader {
+func NewMultiHostUploader(voeSXAPIKey, sendCMAPIKey, byseAPIKey, streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken, pixeldrainToken string, log Logger) *MultiHostUploader {
         if log == nil {
                 log = &nilLogger{}
         }
         return &MultiHostUploader{
-                gofile:      NewGoFileUploader(),
-                turboviplay: NewTurboViPlayUploader(turboViPlayAPIKey),
-                voesx:       NewVoeSXUploader(voeSXAPIKey),
-                sendcm:      NewSendCMUploader(sendCMAPIKey),
-                byse:        NewByseUploader(byseAPIKey),
-                streamtape:  NewStreamtapeUploader(streamtapeLogin, streamtapeKey),
-                mixdrop:     NewMixdropUploader(mixdropEmail, mixdropToken),
-                pixeldrain:  NewPixeldrainUploader(pixeldrainToken),
-                log:         log,
+                gofile:     NewGoFileUploader(),
+                voesx:      NewVoeSXUploader(voeSXAPIKey),
+                sendcm:     NewSendCMUploader(sendCMAPIKey),
+                byse:       NewByseUploader(byseAPIKey),
+                streamtape: NewStreamtapeUploader(streamtapeLogin, streamtapeKey),
+                mixdrop:    NewMixdropUploader(mixdropEmail, mixdropToken),
+                pixeldrain: NewPixeldrainUploader(pixeldrainToken),
+                log:        log,
         }
 }
 

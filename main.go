@@ -221,12 +221,6 @@ func main() {
 				Value:   0,
 			},
 			&cli.StringFlag{
-				Name:    "turboviplay-api-key",
-				Usage:   "API key for TurboViPlay uploads",
-				EnvVars: []string{"TURBOVIPLAY_API_KEY"},
-				Value:   "",
-			},
-			&cli.StringFlag{
 				Name:    "voesx-api-key",
 				Usage:   "API key for VOE.sx uploads",
 				EnvVars: []string{"VOESX_API_KEY"},

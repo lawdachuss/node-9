@@ -106,7 +106,6 @@ type Config struct {
 	DiskCriticalPercent     int  // auto-delete oldest recordings when disk exceeds this (0 = disabled, default 90)
 	MaxLocalAgeDays         int  // delete local files older than N days if uploaded (0 = disabled)
 
-	TurboViPlayAPIKey string
 	VoeSXAPIKey       string
 	SendCMAPIKey      string
 	ByseAPIKey        string
