@@ -350,9 +350,17 @@ func (c *Client) SaveUploadLink(link *UploadLink) error {
 
 // GetUploadLinks retrieves all upload links for a recording
 func (c *Client) GetUploadLinks(recordingID string) ([]UploadLink, error) {
-        var links []UploadLink
-        err := c.get(fmt.Sprintf("/upload_links?recording_id=eq.%s", url.QueryEscape(recordingID)), &links)
-        return links, err
+	var links []UploadLink
+	err := c.get(fmt.Sprintf("/upload_links?recording_id=eq.%s", url.QueryEscape(recordingID)), &links)
+	return links, err
+}
+
+// GetAllUploadLinks retrieves ALL upload links in a single batch query.
+// The caller can group by recording_id for O(1) per-recording lookup.
+func (c *Client) GetAllUploadLinks() ([]UploadLink, error) {
+	var links []UploadLink
+	err := c.get("/upload_links?limit=50000", &links)
+	return links, err
 }
 
 // ============================================================================

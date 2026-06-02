@@ -45,6 +45,7 @@ var (
 
 // Index renders the index page with channel information.
 func Index(c *gin.Context) {
+	c.Header("Cache-Control", "public, max-age=30")
         c.HTML(200, "index.html", &IndexData{
                 Config:   server.Config,
                 Channels: server.Manager.ChannelInfo(),
@@ -482,38 +483,30 @@ func VideoDetail(c *gin.Context) {
                                 }
                         }
                 }
-                // Get smart recommendations based on multiple factors
-                allVideos := scanVideos()
-                currentVideo := &VideoEntry{
-                        Username:    username,
-                        Filename:    filename,
-                        Tags:        tags,
-                        Gender:      gender,
-                        Resolution:  resolution,
-                        Framerate:   framerate,
-                        ModTimeSort: timestamp,
-                }
-                recommendations := getRecommendations(currentVideo, allVideos, 12)
-                // Only include same-channel videos for "More from [username]" section
-                for _, v := range recommendations {
-                        if !strings.EqualFold(v.Username, username) {
-                                continue
-                        }
-			related = append(related, RecordingEntry{
-				Filename:     v.Filename,
-				FullPath:     v.FullPath,
-				Timestamp:    v.ModTime,
-				RoomTitle:    v.RoomTitle,
-				Tags:         v.Tags,
-				Viewers:      v.Viewers,
-				Resolution:   v.Resolution,
-				Framerate:    v.Framerate,
-				ThumbnailURL: v.ThumbnailURL,
-				SpriteURL:    v.SpriteURL,
-				PreviewURL:   v.PreviewURL,
-			})
-                        if len(related) >= 8 {
-                                break
+                // Build same-channel recommendations directly from recordings DB
+                // (avoids a full filesystem walk + Supabase scan via scanVideos())
+                if db != nil {
+                        if chanData, ok := db.Channels[username]; ok {
+                                for _, rec := range chanData.Recordings {
+                                        if rec.Filename == filename {
+                                                continue
+                                        }
+                                        related = append(related, RecordingEntry{
+                                                Filename:     rec.Filename,
+                                                Timestamp:    rec.Timestamp,
+                                                RoomTitle:    rec.RoomTitle,
+                                                Tags:         rec.Tags,
+                                                Viewers:      rec.Viewers,
+                                                Resolution:   rec.Resolution,
+                                                Framerate:    rec.Framerate,
+                                                ThumbnailURL: rec.ThumbnailURL,
+                                                SpriteURL:    rec.SpriteURL,
+                                                PreviewURL:   rec.PreviewURL,
+                                        })
+                                        if len(related) >= 8 {
+                                                break
+                                        }
+                                }
                         }
                 }
         }

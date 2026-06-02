@@ -21,12 +21,12 @@ func SetupRouter() *gin.Engine {
                 log.Fatalf("failed to load HTML templates: %v", err)
         }
 
-        // Apply authentication if configured
-        SetupAuth(r)
-        // Serve static frontend files
-        SetupStatic(r)
-        // Register views
-        SetupViews(r)
+	// Apply authentication if configured
+	SetupAuth(r)
+	// Serve static frontend files
+	SetupStatic(r)
+	// Register views
+	SetupViews(r)
 
         return r
 }
@@ -39,6 +39,10 @@ func SetupAuth(r *gin.Engine) {
                 })
                 r.Use(auth)
         }
+}
+
+func init() {
+	server.InvalidateVideosCacheFn = InvalidateVideosCache
 }
 
 // SetupStatic serves static frontend files with aggressive browser caching.

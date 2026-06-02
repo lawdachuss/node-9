@@ -68,33 +68,36 @@ func supabaseRequest(method, path string, body []byte) (*http.Response, error) {
         return supabaseRequestWithPrefer(method, path, body, prefer)
 }
 
+// Shared HTTP client with connection pooling for the supabaseRequest helper.
+// Avoids creating a new TCP+TLS connection on every call.
+var supabaseHTTPClient = &http.Client{Timeout: 60 * time.Second}
+
 // supabaseRequestWithPrefer is the low-level HTTP helper. Pass an empty string
 // for prefer to omit the header entirely.
 func supabaseRequestWithPrefer(method, path string, body []byte, prefer string) (*http.Response, error) {
-        baseURL := supabaseRestURL()
-        apiKey := supabaseRestAPIKey()
-        if baseURL == "" || apiKey == "" {
-                return nil, fmt.Errorf("Supabase not configured")
-        }
+	baseURL := supabaseRestURL()
+	apiKey := supabaseRestAPIKey()
+	if baseURL == "" || apiKey == "" {
+		return nil, fmt.Errorf("Supabase not configured")
+	}
 
-        var bodyReader io.Reader
-        if body != nil {
-                bodyReader = bytes.NewReader(body)
-        }
-        req, err := http.NewRequest(method, baseURL+path, bodyReader)
-        if err != nil {
-                return nil, fmt.Errorf("create request: %w", err)
-        }
-        req.Header.Set("apikey", apiKey)
-        req.Header.Set("Authorization", "Bearer "+apiKey)
-        if body != nil {
-                req.Header.Set("Content-Type", "application/json")
-        }
-        if prefer != "" {
-                req.Header.Set("Prefer", prefer)
-        }
-	client := &http.Client{Timeout: 60 * time.Second}
-	return client.Do(req)
+	var bodyReader io.Reader
+	if body != nil {
+		bodyReader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequest(method, baseURL+path, bodyReader)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("apikey", apiKey)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if prefer != "" {
+		req.Header.Set("Prefer", prefer)
+	}
+	return supabaseHTTPClient.Do(req)
 }
 
 // CheckSupabase verifies the app_settings table is reachable via the REST API.
@@ -381,7 +384,7 @@ func SaveRecordingsToDB(data []byte) error {
 		}
 	}
 
-	cacheClear()
+	InvalidateAllCaches()
 	return nil
 }
 
@@ -429,6 +432,19 @@ func LoadRecordingsFromDB() []byte {
 			Channels map[string]*ChannelRecordings `json:"channels"`
 		}
 
+	// Batch-fetch all upload links at once, grouped by recording_id
+	allUploadLinks := map[string]map[string]string{} // recording_id → {host: url}
+	if allLinks, err := client.GetAllUploadLinks(); err == nil {
+		for _, link := range allLinks {
+			m := allUploadLinks[link.RecordingID]
+			if m == nil {
+				m = make(map[string]string)
+				allUploadLinks[link.RecordingID] = m
+			}
+			m[link.Host] = link.URL
+		}
+	}
+
 	db := RecordingsDB{
 		Version:  2,
 		Channels: make(map[string]*ChannelRecordings),
@@ -445,15 +461,10 @@ func LoadRecordingsFromDB() []byte {
 			db.Channels[rec.Username] = chanData
 		}
 
-		// Get upload links for this recording
-		links := make(map[string]string)
-		if rec.ID != "" {
-			uploadLinks, err := client.GetUploadLinks(rec.ID)
-			if err == nil {
-				for _, link := range uploadLinks {
-					links[link.Host] = link.URL
-				}
-			}
+		// Look up links from batch map (O(1), no per-recording API call)
+		links := allUploadLinks[rec.ID]
+		if links == nil {
+			links = make(map[string]string)
 		}
 
 		entry := RecordingEntry{
@@ -481,7 +492,7 @@ func LoadRecordingsFromDB() []byte {
 		return nil
 	}
 
-	cacheSet("recordings", data, 15*time.Second)
+	cacheSet("recordings", data, 5*time.Minute)
 	return data
 }
 
@@ -606,7 +617,7 @@ func SavePreviewLinks(filename, thumbnailURL, spriteURL, previewURL string) erro
 		return err
 	}
 
-	cacheClear()
+	InvalidateAllCaches()
 	return nil
 }
 
@@ -654,7 +665,7 @@ func LoadAllPreviewLinks() map[string][3]string {
 	}
 
 	if data, err := json.Marshal(result); err == nil {
-		cacheSet("preview_links", data, 30*time.Second)
+		cacheSet("preview_links", data, 5*time.Minute)
 	}
 	return result
 }

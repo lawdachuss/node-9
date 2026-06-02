@@ -22,7 +22,7 @@ var (
         videosCacheMu   sync.RWMutex
         cachedVideos    []*VideoEntry
         cachedVideosAt  time.Time
-        videosCacheTTL  = 10 * time.Second
+	videosCacheTTL  = 5 * time.Minute
 )
 
 // InvalidateVideosCache forces the next /videos request to rescan.
@@ -150,8 +150,8 @@ func Videos(c *gin.Context) {
                 recommended = sorted[:limit]
         }
 
-        c.Header("Cache-Control", "public, max-age=5")
-        c.HTML(200, "videos.html", &VideosData{
+	c.Header("Cache-Control", "public, max-age=60")
+	c.HTML(200, "videos.html", &VideosData{
                 Config:      server.Config,
                 Videos:      videos,
                 Groups:      groups,

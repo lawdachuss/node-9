@@ -5,40 +5,89 @@ import (
 	"time"
 )
 
+// ─── Data cache (Supabase query results) ────────────────────────────────────
+
 type cacheItem struct {
 	data      []byte
 	expiresAt time.Time
 }
 
 var (
-	apiCacheMu sync.RWMutex
-	apiCache   = map[string]*cacheItem{}
+	cacheMu sync.RWMutex
+	cache   = map[string]*cacheItem{}
 )
 
 func cacheGet(key string) []byte {
-	apiCacheMu.RLock()
-	item, ok := apiCache[key]
-	apiCacheMu.RUnlock()
+	cacheMu.RLock()
+	item, ok := cache[key]
+	cacheMu.RUnlock()
 	if !ok {
 		return nil
 	}
 	if time.Now().After(item.expiresAt) {
-		apiCacheMu.Lock()
-		delete(apiCache, key)
-		apiCacheMu.Unlock()
+		cacheMu.Lock()
+		delete(cache, key)
+		cacheMu.Unlock()
 		return nil
 	}
 	return item.data
 }
 
 func cacheSet(key string, data []byte, ttl time.Duration) {
-	apiCacheMu.Lock()
-	apiCache[key] = &cacheItem{data: data, expiresAt: time.Now().Add(ttl)}
-	apiCacheMu.Unlock()
+	cacheMu.Lock()
+	cache[key] = &cacheItem{data: data, expiresAt: time.Now().Add(ttl)}
+	cacheMu.Unlock()
+}
+
+func cacheDelete(key string) {
+	cacheMu.Lock()
+	delete(cache, key)
+	cacheMu.Unlock()
 }
 
 func cacheClear() {
-	apiCacheMu.Lock()
-	apiCache = map[string]*cacheItem{}
-	apiCacheMu.Unlock()
+	cacheMu.Lock()
+	cache = map[string]*cacheItem{}
+	cacheMu.Unlock()
+}
+
+// InvalidateVideosCacheFn is set by the router package to avoid import cycles.
+// It forces scanVideosCached() to re-scan on the next request.
+var InvalidateVideosCacheFn func()
+
+// InvalidateAllCaches clears all caches. Call after any data mutation.
+func InvalidateAllCaches() {
+	cacheClear()
+	InvalidatePageCache()
+	if InvalidateVideosCacheFn != nil {
+		InvalidateVideosCacheFn()
+	}
+}
+
+// ─── Page cache tracking ────────────────────────────────────────────────────
+
+var (
+	pageMu      sync.RWMutex
+	pageCached  = map[string]bool{}
+)
+
+const pageCacheDuration = 60 * time.Second
+
+func InvalidatePageCache() {
+	pageMu.Lock()
+	pageCached = map[string]bool{}
+	pageMu.Unlock()
+}
+
+func IsPageCached(url string) bool {
+	pageMu.RLock()
+	_, ok := pageCached[url]
+	pageMu.RUnlock()
+	return ok
+}
+
+func MarkPageCached(url string) {
+	pageMu.Lock()
+	pageCached[url] = true
+	pageMu.Unlock()
 }
