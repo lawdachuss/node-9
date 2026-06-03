@@ -41,7 +41,8 @@ if %ERRORLEVEL% NEQ 0 (
         )
         if defined WINGET_FOUND (
             echo   Found ffmpeg at: !WINGET_FOUND!
-            setx PATH "!UserPath!;!WINGET_FOUND!"
+            REM setx PATH replaced with reg add for GitHub Actions compatibility
+            reg add "HKCU\Environment" /v Path /t REG_EXPAND_SZ /d "!UserPath!;!WINGET_FOUND!" /f >nul 2>&1
             set "PATH=!PATH!;!WINGET_FOUND!"
         )
     )
@@ -71,7 +72,9 @@ set "ffmpegDir=%ffmpegDir:~0,-1%"
 for /f "tokens=2*" %%a in ('reg query "HKCU\Environment" /v Path 2^>nul') do set "UserPath=%%b"
 echo !UserPath! | find /I "!ffmpegDir!" >nul
 if %ERRORLEVEL% NEQ 0 (
-    setx PATH "!UserPath!;!ffmpegDir!"
+    REM setx PATH replaced with reg add for GitHub Actions compatibility
+    reg add "HKCU\Environment" /v Path /t REG_EXPAND_SZ /d "!UserPath!;!ffmpegDir!" /f >nul 2>&1
+    set "PATH=!PATH!;!ffmpegDir!"
     echo   [OK] Added !ffmpegDir! to user PATH
 ) else (
     echo   [OK] Already in PATH: !ffmpegDir!
