@@ -138,6 +138,8 @@ def main():
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/146.0.0.0 Safari/537.36"
         )
+    print(f"  Resolved User-Agent: {user_agent}")
+    print(f"UA_EXTRACTED={user_agent}")
 
     old = parse_cookies(cookie_str)
     print(f"  Loaded {len(old)} cookies")
