@@ -332,6 +332,9 @@
             </div>
         </div>
 
+        <!-- Hidden session data for floating clock -->
+        <div id="session-data" data-deadline="{{ .SessionDeadlineUnix }}" data-duration="{{ .SessionDurationSec }}" style="display:none"></div>
+
         <!-- Channel list -->
         <div class="flex-1 flex flex-col overflow-hidden py-2 px-2">
             {{ if .Channels }}
@@ -1220,8 +1223,9 @@ document.querySelectorAll('.log-container').forEach(function(container) {
 
 // ── Session countdown ──
 (function() {
-    var deadline = {{ .SessionDeadlineUnix }};
-    var totalSec = {{ .SessionDurationSec }} || 1;
+    var dataEl = document.getElementById('session-data');
+    var deadline = dataEl ? parseInt(dataEl.dataset.deadline) || 0 : 0;
+    var totalSec = dataEl ? parseInt(dataEl.dataset.duration) || 1 : 1;
     var badgeTime = document.getElementById('session-badge-time');
     var cardTime = document.getElementById('session-card-time');
     var cardProgress = document.getElementById('session-card-progress');
