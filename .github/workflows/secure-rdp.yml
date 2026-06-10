@@ -267,6 +267,7 @@ jobs:
           
           # Use the already-checked-out code from actions/checkout
           # This ensures CI always uses the latest code from this repo
+          New-Item -ItemType Directory -Force -Path $repoDir | Out-Null
           Copy-Item -Path "$env:GITHUB_WORKSPACE\*" -Destination $repoDir -Recurse -Force
           Write-Host "[OK] Copied local repo to $repoDir"
 
