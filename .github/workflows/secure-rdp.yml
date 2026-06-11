@@ -812,16 +812,29 @@ jobs:
           
           # ====== START CLOUDFLARE TUNNEL ======
           Write-Host "=== Starting Cloudflare tunnel ==="
+          $tunnelUrl = $null
           if (Test-Path $cloudflaredPath) {
-            cmd /c "schtasks /Run /TN `"CloudflareTunnel`""
+            # Run cloudflared directly — capture stderr for tunnel URL
+            $cloudflaredStderr = "$repoDir\cloudflared-stderr.log"
+            if (Test-Path $cloudflaredStderr) { Remove-Item $cloudflaredStderr -Force }
+            
+            $tunnelProc = Start-Process -FilePath $cloudflaredPath `
+              -ArgumentList "tunnel --url http://localhost:8080 --protocol http2" `
+              -WorkingDirectory $repoDir `
+              -NoNewWindow `
+              -RedirectStandardError $cloudflaredStderr `
+              -PassThru
+            Write-Host "[OK] cloudflared started (PID: $($tunnelProc.Id))"
+            
+            # Poll stderr for tunnel URL (cloudflared prints it to stderr)
             Write-Host "Waiting for tunnel URL..."
-            $tunnelUrl = $null
             for ($i = 0; $i -lt 45; $i++) {
               Start-Sleep -Seconds 1
-              if (Test-Path $tunnelUrlFile) {
-                $urlContent = Get-Content $tunnelUrlFile -Raw -ErrorAction SilentlyContinue
-                if ($urlContent -match 'https://[a-z0-9\-]+\.trycloudflare\.com') {
+              if (Test-Path $cloudflaredStderr) {
+                $errContent = Get-Content $cloudflaredStderr -Raw -ErrorAction SilentlyContinue
+                if ($errContent -match 'https://[a-z0-9\-]+\.trycloudflare\.com') {
                   $tunnelUrl = $Matches[0]
+                  $tunnelUrl | Set-Content -Path $tunnelUrlFile -Force
                   Write-Host "[OK] Tunnel URL found: $tunnelUrl"
                   break
                 }
@@ -831,7 +844,9 @@ jobs:
               }
             }
             if (-not $tunnelUrl) {
-              Write-Warning "Tunnel URL not found after 45 seconds - DVR still accessible via Tailscale"
+              $stderrLog = if (Test-Path $cloudflaredStderr) { Get-Content $cloudflaredStderr -Raw } else { "(no file)" }
+              Write-Warning "Tunnel URL not found after 45 seconds"
+              Write-Warning "cloudflared stderr: $stderrLog"
             }
           } else {
             Write-Host "[SKIP] cloudflared not found - DVR accessible via Tailscale only"
@@ -875,13 +890,28 @@ jobs:
             $sleepSecs = [Math]::Min($remaining, 60)
             if ($sleepSecs -le 0) { break }
             
-            # Refresh tunnel URL and check DVR health
-            if (Test-Path $tunnelUrlFile) {
-              $tunnelUrl = Get-Content $tunnelUrlFile -Raw -ErrorAction SilentlyContinue
-            }
+            # Restart DVR if it crashed
             if ($dvrProcess.HasExited) {
               Write-Host "[WARNING] DVR process exited (code: $($dvrProcess.ExitCode)) - restarting..."
-              $dvrProcess = Start-Process -FilePath $dvrExe -ArgumentList "--no-tunnel --output-dir `"$videosDir`"" -NoNewWindow -RedirectStandardOutput $dvrLog -RedirectStandardError "$repoDir\dvr-err.log" -PassThru
+              $dvrProcess = Start-Process -FilePath $dvrExe -ArgumentList "--no-tunnel --output-dir `"$videosDir`"" -WorkingDirectory $repoDir -NoNewWindow -RedirectStandardOutput $dvrLog -RedirectStandardError "$repoDir\dvr-err.log" -PassThru
+            }
+            
+            # Restart cloudflared if it crashed
+            if ($tunnelProc -and $tunnelProc.HasExited) {
+              Write-Host "[WARNING] cloudflared exited - restarting..."
+              $cloudflaredStderr = "$repoDir\cloudflared-stderr.log"
+              if (Test-Path $cloudflaredStderr) { Remove-Item $cloudflaredStderr -Force }
+              $tunnelProc = Start-Process -FilePath $cloudflaredPath -ArgumentList "tunnel --url http://localhost:8080 --protocol http2" -WorkingDirectory $repoDir -NoNewWindow -RedirectStandardError $cloudflaredStderr -PassThru
+              # Re-read tunnel URL from stderr after restart
+              Start-Sleep -Seconds 10
+              if (Test-Path $cloudflaredStderr) {
+                $errContent = Get-Content $cloudflaredStderr -Raw -ErrorAction SilentlyContinue
+                if ($errContent -match 'https://[a-z0-9\-]+\.trycloudflare\.com') {
+                  $tunnelUrl = $Matches[0]
+                  $tunnelUrl | Set-Content -Path $tunnelUrlFile -Force
+                  Write-Host "[OK] New tunnel URL: $tunnelUrl"
+                }
+              }
             }
             
             $status = if ($tunnelUrl) { " | PUBLIC: $tunnelUrl" } else { "" }
