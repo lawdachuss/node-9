@@ -167,7 +167,7 @@ def main():
     print(f"  sessionid: {'[OK]' if 'sessionid' in old else '[NO]'}")
     print(f"  csrftoken: {'[OK]' if 'csrftoken' in old else '[NO]'}")
     print(f"  cf_clearance: {'[OK]' if 'cf_clearance' in old else '[NO]'}")
-    print(f"  Proxy: {'[OK]' if proxy else '[NO] (direct)'}")
+    print(f"  Proxy: {'[OK] ' + proxy if proxy else '[NO] (direct)'}")
 
     # --- Launch Scrapling and visit chaturbate.com ---
     print("\n[2/4] Launching browser with Cloudflare bypass...")
@@ -184,7 +184,7 @@ def main():
     session_kwargs = {
         "headless": True,
         "solve_cloudflare": True,
-        "timeout": 90000,
+        "timeout": 180000,
         "block_webrtc": True,
         "hide_canvas": True,
         "network_idle": False,
@@ -196,7 +196,7 @@ def main():
     if cookie_str:
         session_kwargs["cookies"] = cookies_to_playwright_format(cookie_str)
 
-    HARD_TIMEOUT = 100  # seconds — kill entire Scrapling if it hangs
+    HARD_TIMEOUT = 200  # seconds — kill entire Scrapling if it hangs
 
     def _run_scrapling(result_container):
         try:
