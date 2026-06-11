@@ -948,14 +948,12 @@ function highlightMsg(msg, baseColor) {
         'VOE.sx':     { fg: '#f472b6', bg: 'rgba(244,114,182,0.1)' },  // pink
         'VoeSX':      { fg: '#f472b6', bg: 'rgba(244,114,182,0.1)' },  // pink
         'TurboViPlay':{ fg: '#a78bfa', bg: 'rgba(167,139,250,0.1)' },  // violet
-        'SendCM':     { fg: '#fb923c', bg: 'rgba(251,146,60,0.1)'  },  // orange
-        'Byse':       { fg: '#22d3ee', bg: 'rgba(34,211,238,0.1)'  },  // cyan
         'GitHub':     { fg: '#e4e4e7', bg: 'rgba(228,228,231,0.08)'},  // white
         'Streamtape': { fg: '#fbbf24', bg: 'rgba(251,191,36,0.1)'  },  // amber
         'Mixdrop':    { fg: '#c084fc', bg: 'rgba(192,132,252,0.1)' },  // purple
         'PixelDrain': { fg: '#60a5fa', bg: 'rgba(96,165,250,0.1)'  },  // blue
     };
-    safe = safe.replace(/\[(GoFile|VOE\.sx|VoeSX|TurboViPlay|SendCM|Byse|GitHub|Streamtape|Mixdrop|PixelDrain)\]/g,
+    safe = safe.replace(/\[(GoFile|VOE\.sx|VoeSX|TurboViPlay|GitHub|Streamtape|Mixdrop|PixelDrain)\]/g,
         function(m, host) {
             var c = HOST_COLORS[host] || { fg: '#94a3b8', bg: 'rgba(148,163,184,0.1)' };
             return '<span style="color:' + c.fg + ';background:' + c.bg + ';padding:0 4px;border-radius:3px;font-size:10px;font-weight:600">[' + host + ']</span>';

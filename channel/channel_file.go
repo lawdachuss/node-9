@@ -1434,9 +1434,11 @@ func (ch *Channel) handleMinDurationAndMerge(videoPath string) bool {
 		// Check if the merged video is long enough
 		mergedDur, mErr := VideoDurationSeconds(mergedPath)
 		if mErr != nil {
-			ch.Warn("min-duration: could not probe merged result, uploading anyway: %v", mErr)
-			deletePendingSegments(ch.Config.Username)
-			ch.MoveToOutputDir(mergedPath)
+			ch.Warn("min-duration: could not probe merged result (%v) — keeping pending for next cycle", mErr)
+			mergedDest := filepath.Join(pendingDir, "merged-"+filepath.Base(destPath))
+			if err := os.MkdirAll(pendingDir, 0777); err == nil {
+				_ = os.Rename(mergedPath, mergedDest)
+			}
 			return true
 		}
 

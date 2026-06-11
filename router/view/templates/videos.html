@@ -366,6 +366,7 @@
         </div>
         <div class="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {{ range .Recommended }}
+            {{ if .ThumbnailURL }}
             <div class="video-card group cursor-pointer"
                  data-filename="{{ .Filename }}"
                  data-username="{{ .Username }}"
@@ -377,11 +378,6 @@
                 <div class="card-thumb">
                     {{ if .ThumbnailURL }}<img src="{{ .ThumbnailURL }}" alt="" loading="lazy" decoding="async" />{{ end }}
                     {{ if .PreviewURL }}<div class="sprite-overlay"><img src="{{ .PreviewURL }}" alt="" class="preview-gif" /></div>{{ else if .SpriteURL }}<div class="sprite-overlay"><div class="sprite-anim"></div></div>{{ end }}
-                    {{ if not .ThumbnailURL }}
-                    <div class="w-full h-full flex items-center justify-center" style="background:var(--bg-card)">
-                        <svg class="w-10 h-10 text-zinc-800" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z"/></svg>
-                    </div>
-                    {{ end }}
                     <div class="play-btn-wrap"><div class="play-btn"><svg fill="currentColor" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21"/></svg></div></div>
                     <div class="card-badges">
                         <div class="flex flex-wrap gap-1">
@@ -424,6 +420,7 @@
                 </div>
             </div>
             {{ end }}
+            {{ end }}
         </div>
     </div>
     {{ end }}
@@ -457,6 +454,7 @@
         <!-- Video grid -->
         <div class="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {{ range .Videos }}
+            {{ if .ThumbnailURL }}
             <div class="video-card group cursor-pointer"
                  data-filename="{{ .Filename }}"
                  data-username="{{ .Username }}"
@@ -477,14 +475,6 @@
                     {{ else if .SpriteURL }}
                     <div class="sprite-overlay">
                         <div class="sprite-anim"></div>
-                    </div>
-                    {{ end }}
-
-                    {{ if not .ThumbnailURL }}
-                    <div class="w-full h-full flex items-center justify-center" style="background:var(--bg-card)">
-                        <svg class="w-10 h-10 text-zinc-800" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                            <path d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z"/>
-                        </svg>
                     </div>
                     {{ end }}
 
@@ -558,6 +548,7 @@
                     {{ end }}
                 </div>
             </div>
+            {{ end }}
             {{ end }}
         </div>
     </div>
