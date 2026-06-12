@@ -1,395 +1,309 @@
-<div align="center">
+# MiniDelectableService
 
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:0d1117,50:1a1a2e,100:16213e&height=220&section=header&text=Chaturbate%20DVR&fontSize=80&fontColor=e94560&fontAlignY=35&desc=Multi-channel%20stream%20recorder%20%E2%80%94%20Docker%20%7C%20Cloud%20%7C%20Local&descSize=18&descAlignY=55&animation=fadeIn" width="100%"/>
+A high-performance, always-on stream recorder and video manager for Chaturbate and Stripchat. Written in Go with a built-in web UI, GPU-accelerated compression, multi-host uploading, and crash-recoverable pipelines.
 
-<br/>
+## Features
 
-[![Stars](https://img.shields.io/github/stars/vasud3v/chaturbate-recorder?style=flat&color=e94560&logo=github)](https://github.com/vasud3v/chaturbate-recorder/stargazers)
-[![Forks](https://img.shields.io/github/forks/vasud3v/chaturbate-recorder?style=flat&color=0f3460&logo=github)](https://github.com/vasud3v/chaturbate-recorder/network/members)
-[![Issues](https://img.shields.io/github/issues/vasud3v/chaturbate-recorder?style=flat&color=533483&logo=github)](https://github.com/vasud3v/chaturbate-recorder/issues)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat&logo=github)](https://github.com/vasud3v/chaturbate-recorder/pulls)
-[![License](https://img.shields.io/github/license/vasud3v/chaturbate-recorder?style=flat&color=00b894&logo=opensourceinitiative&logoColor=white)](LICENSE)
-[![Last Commit](https://img.shields.io/github/last-commit/vasud3v/chaturbate-recorder?style=flat&color=6c5ce7&logo=github)](https://github.com/vasud3v/chaturbate-recorder/commits/main)
-[![Code Size](https://img.shields.io/github/languages/code-size/vasud3v/chaturbate-recorder?style=flat&color=fdcb6e&logo=github)](https://github.com/vasud3v/chaturbate-recorder)
-[![Workflow Status](https://img.shields.io/github/actions/workflow/status/vasud3v/chaturbate-recorder/recorder.yml?style=flat&label=recorder&color=0984e3&logo=githubactions&logoColor=white)](https://github.com/vasud3v/chaturbate-recorder/actions/workflows/recorder.yml)
+- **Multi-site recording** — Chaturbate and Stripchat via a pluggable `site.Site` interface
+- **HLS segment downloading** — Downloads raw TS/M4S segments directly from CDN edges with automatic failover across multiple CDN regions (lax, fra, AMS, sin, hnd)
+- **GPU-accelerated compression** — Automatic encoder detection: NVENC (NVIDIA) > AMF (AMD) > QSV (Intel) > VideoToolbox (macOS) > CPU fallback via mp4ff muxer
+- **Multi-host uploading** — Parallel uploads to GoFile, Streamtape, VOE.sx, MixDrop, Pixeldrain with file-hash deduplication
+- **Crash-recoverable pipeline** — Post-recording pipeline (Thumbnail → Metadata → Cleanup) persisted in Supabase, survives restarts
+- **Thumbnail generation** — Static thumbnails (1280×720), sprite sheets (4×4 grid), and animated GIF previews (40 frames, 8fps)
+- **Built-in web UI** — Dark-mode dashboard with live channel logs (SSE), video browser, and player with HLS support
+- **Adaptive rate limiting** — Token-bucket rate limiter + circuit breaker for resilient API calls
+- **Chrome TLS fingerprinting** — Uses httpcloak to spoof Chrome 146 TLS fingerprints, bypassing Cloudflare WAF
+- **SOCKS5 proxy support** — Proxy rotation for CDN and API requests
+- **Cloudflare tunnels** — One-command public access via cloudflared
+- **Scheduled task persistence** — Windows Task Scheduler for auto-restart on reboot
+- **File watcher** — fsnotify-based watcher for external video processing
 
-<br/>
-
-<a href="#rocket-quick-start"><img src="https://img.shields.io/badge/-Quick%20Start-e94560?style=for-the-badge&logo=rocket&logoColor=white" /></a>
-<a href="#zap-features"><img src="https://img.shields.io/badge/-Features-0984e3?style=for-the-badge&logo=starship&logoColor=white" /></a>
-<a href="#book-deployment-guides"><img src="https://img.shields.io/badge/-Deployment-6c5ce7?style=for-the-badge&logo=readthedocs&logoColor=white" /></a>
-<a href="#heart-support"><img src="https://img.shields.io/badge/-Support-e94560?style=for-the-badge&logo=githubsponsors&logoColor=white" /></a>
-
-<br/>
-
-**Record live streams automatically** — multi-channel DVR with auto-uploads and a web dashboard. Run it on your server, in Docker, or for free on GitHub Actions.
-
-</div>
-
----
-
-## :zap: Features
-
-<table>
-<tr>
-<td width="50%">
-
-### :movie_camera: Recording
-- Multi-channel simultaneous capture
-- HLS `.ts` + LL-HLS `.m4s` support
-- Auto-split by duration or file size
-- ffmpeg compression to `.mkv`
-
-</td>
-<td width="50%">
-
-### :globe_with_meridians: Deployment
-- **Docker Compose** — one command, full stack
-- **GitHub Actions** — free 24/7 cloud recording
-- **Binary** — single portable executable
-- **Web UI** — manage everything from browser
-
-</td>
-</tr>
-<tr>
-<td>
-
-### :cookie: Cookie Auth
-- Manual cookie-based authentication
-- `sessionid` + `csrftoken` from browser
-- Proxy support (SOCKS5/HTTP)
-
-</td>
-<td>
-
-### :cloud: Uploads & Storage
-- 6+ hosting providers in parallel
-- Thumbnail & sprite generation
-- Supabase metadata storage
-- Browse everything in the dashboard
-
-</td>
-</tr>
-</table>
-
----
-
-## :rocket: Quick Start
+## Quick Start
 
 ```bash
-git clone https://github.com/vasud3v/chaturbate-recorder.git
-cd chaturbate-recorder
-cp .env.example .env        # add your API keys (optional)
-docker compose up -d --build
+# Clone the repo
+git clone https://github.com/YOUR_USERNAME/MiniDelectableService.git
+cd MiniDelectableService
+
+# Run automated setup (Windows)
+.\setup.bat
+
+# Or PowerShell
+.\setup.ps1
 ```
 
-Open **http://localhost:8080** — add channels, hit record. Done.
+The setup script installs all dependencies (FFmpeg, cloudflared, Go, Node.js, Python), compiles the binary, builds Tailwind CSS, and configures GitHub Actions deployment.
 
----
+## Manual Setup
 
-## :book: Deployment Guides
+### Prerequisites
 
-### :whale: Option A — Docker (Recommended)
+| Dependency | Purpose | Install |
+|---|---|---|
+| **Go 1.23+** | Build the binary | [go.dev](https://go.dev/dl/) |
+| **FFmpeg** | Stream compression/muxing | [ffmpeg.org](https://ffmpeg.org/download.html) |
+| **Node.js 20+** | Tailwind CSS build | [nodejs.org](https://nodejs.org/) |
+| **Python 3** | Cookie refresh scripts | [python.org](https://www.python.org/) |
+| **cloudflared** | Public tunnel access | [developers.cloudflare.com](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) |
 
-**Prerequisites:** [Docker](https://docs.docker.com/get-docker/) + [Docker Compose](https://docs.docker.com/compose/install/)
+### Build
 
 ```bash
-# 1. Clone the repo
-git clone https://github.com/vasud3v/chaturbate-recorder.git
-cd chaturbate-recorder
+# Install Go dependencies
+go mod download
 
-# 2. Configure environment
+# Build Tailwind CSS
+npm install
+npm run build:css
+
+# Compile binary
+go build -o chaturbate-dvr.exe .
+```
+
+### Configure
+
+```bash
+# Copy environment template
 cp .env.example .env
-# Edit .env with your API keys (see Environment Variables below)
 
-# 3. Start all services
-docker compose up -d --build
-
-# 4. View logs
-docker compose logs -f chaturbate-dvr
+# Edit .env with your credentials
+notepad .env
 ```
 
-**Services started:**
+## Configuration
 
-| Service | Port | Purpose |
-|---------|------|---------|
-| `chaturbate-dvr` | `8080` | Recorder + Web UI |
-| `cookie-refresher` | — | Auto cookie renewal |
-| `uploader` | — | Background uploads |
+All configuration is done via environment variables (`.env` file) and JSON config files in `conf/`.
 
-**Volumes:** `./videos` · `./conf` · `./database`
-
----
-
-### :octocat: Option B — GitHub Actions (Free Cloud Recording)
-
-Run the full stack on GitHub-hosted runners — **no server needed**.
-
-```mermaid
-flowchart LR
-    subgraph GHA [GitHub Actions Runner]
-        DC[docker compose]
-        DVR[chaturbate-dvr]
-    end
-    subgraph Out [Outputs]
-        UI[Public Dashboard URL]
-        ART[Emergency Backup]
-        SB[Supabase Metadata]
-    end
-    DC --> BYP --> DVR
-    DVR --> TUN --> UI
-    DVR --> ART
-    DVR --> SB
-```
-
-**Step-by-step setup:**
-
-1. **Fork** this repository
-
-2. **Add repository secrets** — go to `Settings` → `Secrets and variables` → `Actions` → `New repository secret`
-
-    | Secret | Required | Purpose |
-    |--------|----------|---------|
-    | `SUPABASE_URL` | Yes | Your Supabase project URL |
-    | `SUPABASE_API_KEY` | Yes | Supabase anon/service key |
-    | `VOESX_API_KEY` | For uploads | Voe.sx API key |
-    | `SENDCM_API_KEY` | For uploads | SendCM API key |
-    | `GOFILE_API_KEY` | Optional | GoFile (guest works without) |
-    | `BYSE_API_KEY` | Optional | Byse.sx API key |
-    | `PROXY_SERVER` | Optional | Proxy URL |
-    | `PROXY_USERNAME` | Optional | Proxy auth |
-    | `PROXY_PASSWORD` | Optional | Proxy auth |
-
-3. **Configure channels** — edit [`conf/channels.json`](conf/channels.json) in your fork:
-
-   ```json
-   [
-     {
-       "is_paused": false,
-       "username": "channel_name",
-       "framerate": 30,
-       "resolution": 1080,
-       "compress": true
-     }
-   ]
-   ```
-
-4. **Set your INSTANCE_ID** — edit `.github/workflows/recorder.yml` and change `INSTANCE_ID: "a"` to a unique value per fork (e.g., `"b"`, `"c"`). This isolates each fork's channels while sharing the same Supabase database.
-
-5. **Run the workflow** — `Actions` tab → `24/7 Recorder` → `Run workflow` → choose duration (1–5 hours)
-
-5. **Get your dashboard URL** — check the run summary
-
-**What happens automatically:**
-- Recording runs for the chosen duration with health checks every 60s
-- If the recorder crashes, it auto-restarts
-- Uploads run in the background to configured hosts
-- Emergency backup saved as a GitHub artifact (30-day retention)
-- **Next run auto-queues** for continuous 24/7 operation
-
-> **Limits:** GitHub-hosted runners cap at ~5 hours per run. Videos aren't persisted on GitHub long-term — use upload hosts + Supabase for permanent storage.
-
----
-
-### :repeat: Multi-Instance Setup (Record 100+ Channels)
-
-GitHub Actions has a ~14 GB disk limit (~3–5 channels max per runner). To record more channels, fork this repo to multiple GitHub accounts — all sharing the same Supabase database.
-
-```mermaid
-flowchart TB
-    subgraph ForkA [Fork A · INSTANCE_ID=a]
-        A1[channels: alice, bob]
-    end
-    subgraph ForkB [Fork B · INSTANCE_ID=b]
-        B1[channels: charlie, dave]
-    end
-    subgraph ForkC [Fork C · INSTANCE_ID=c]
-        C1[channels: eve, frank]
-    end
-    subgraph Supabase [Shared Supabase]
-        DB[(recordings)]
-        DB2[(upload_links)]
-        DB3[(preview_images)]
-        AS[app_settings]
-    end
-    A1 --> DB
-    B1 --> DB
-    C1 --> DB
-    A1 -.->|channels_a| AS
-    B1 -.->|channels_b| AS
-    C1 -.->|channels_c| AS
-```
-
-**How it works:**
-
-| Component | Behavior |
-|-----------|----------|
-| Channels | Isolated per instance via `channels_<instance_id>` in `app_settings` |
-| Tunnels | Isolated per instance — each fork gets its own dashboard URL |
-| Recordings | Shared — all recordings aggregate into one unified video library |
-| Uploads | Shared — all instances upload to the same hosts |
-| Cookies | Shared — one instance's cookie refresh benefits all |
-
-**Setup:**
-
-1. **Fork** this repo to each GitHub account
-2. **Edit `.github/workflows/recorder.yml`** — set a unique `INSTANCE_ID` per fork:
-   ```yaml
-   env:
-     INSTANCE_ID: "b"  # unique per fork: "a", "b", "c", ...
-   ```
-3. **Add the same Supabase secrets** to each fork
-4. **Run `database/migrate.sql`** in your Supabase SQL Editor (one-time setup)
-
-> **Note:** Don't add the same channel username to multiple instances — both would record it simultaneously and create duplicate uploads.
-
----
-
-### :desktop_computer: Option C — Local Binary
-
-**Prerequisites:** [Go 1.23+](https://go.dev/dl/), ffmpeg
-
-```bash
-# Build from source
-go build -o chaturbate-dvr .
-./chaturbate-dvr
-
-# Or with options
-./chaturbate-dvr --port 8123 --admin-username admin --admin-password secret
-```
-
-**CLI mode** (no dashboard, single channel):
-
-```bash
-./chaturbate-dvr -u CHANNEL_USERNAME -resolution 1080 -framerate 30
-```
-
----
-
-## :database: Database Setup
-
-Run [`database/migrate.sql`](database/migrate.sql) once in your Supabase SQL Editor. It creates all tables, indexes, RLS policies, and permissions. Safe to re-run — uses `IF NOT EXISTS` everywhere.
-
-```sql
--- Paste the entire contents of database/migrate.sql
-```
-
-This sets up:
-- `channels`, `recordings`, `upload_links` — core DVR data
-- `tunnels`, `tunnel_sessions` — tunnel instance tracking (per-instance)
-- `app_settings` — channel configs and cookies (per-instance via `channels_<id>`)
-- `channel_logs`, `preview_images`, `disk_usage` — monitoring and metadata
-
----
-
-## :gear: Environment Variables
+### Environment Variables
 
 | Variable | Required | Description |
-|----------|----------|-------------|
-| `INSTANCE_ID` | For multi-instance | Unique ID per fork/runner (e.g., `"a"`, `"b"`, `"c"`) |
-| `SUPABASE_URL` | For Actions | Supabase project URL |
-| `SUPABASE_API_KEY` | For Actions | Supabase anon key |
-| `VOESX_API_KEY` | For uploads | Voe.sx API key |
-| `SENDCM_API_KEY` | For uploads | SendCM API key |
-| `GOFILE_API_KEY` | Optional | GoFile API key |
-| `BYSE_API_KEY` | Optional | Byse.sx API key |
-| `COOKIES` | Optional | Browser cookies for auth |
-| `USER_AGENT` | Optional | Custom User-Agent string |
-| `PROXY_SERVER` | Optional | HTTP/SOCKS5 proxy |
-| `PROXY_USERNAME` | Optional | Proxy username |
-| `PROXY_PASSWORD` | Optional | Proxy password |
-| `CHATURBATE_API_INITIAL_RPS` | Optional | Initial stream-discovery API requests per second (default `25`) |
-| `CHATURBATE_API_MIN_RPS` | Optional | Minimum adaptive API request rate after failures (default `5`) |
-| `CHATURBATE_API_MAX_RPS` | Optional | Maximum adaptive API request rate after successes (default `100`) |
-| `CHATURBATE_API_BURST` | Optional | Startup burst capacity for large channel lists (default `250`) |
+|---|---|---|
+| `SUPABASE_URL` | Yes | Supabase project URL |
+| `SUPABASE_API_KEY` | Yes | Supabase anon/service key |
+| `PROXY_URL` | No | SOCKS5 proxy URL (`socks5://host:port`) |
+| `USER_AGENT` | No | Custom User-Agent for API requests |
 
----
+### Config Files
 
-## :camera: Dashboard Preview
+Place these in the `conf/` directory:
 
-<p align="center">
-  <img src="docs/images/dashboard.png" alt="Dashboard" width="85%" />
-</p>
+**`conf/settings.json`** — Global settings:
+```json
+{
+  "cookies": "csrftoken=...; sessionid=...",
+  "user_agent": "Mozilla/5.0 ...",
+  "enable_gofile_upload": true,
+  "enable_streamtape_upload": false,
+  "enable_voesx_upload": false,
+  "enable_mixdrop_upload": false,
+  "enable_pixeldrain_upload": false
+}
+```
 
----
+**`conf/channels.json`** — Channel list:
+```json
+[
+  { "username": "channel_name", "is_paused": false },
+  { "username": "another_channel", "is_paused": true }
+]
+```
 
-## :movie_camera: Upload Hosts
+## Usage
 
-| Host | Environment Variable |
-|------|---------------------|
-| GoFile | `GOFILE_API_KEY` |
-| Voe.sx | `VOESX_API_KEY` |
-| SendCM | `SENDCM_API_KEY` |
-| Byse | `BYSE_API_KEY` |
+### CLI Commands
 
-Thumbnails use a fallback chain: **Pixhost** → **Catbox** → **Freeimage**.
+```bash
+# Start recording (default)
+.\chaturbate-dvr.exe
 
----
+# Start without tunnel
+.\chaturbate-dvr.exe --no-tunnel
 
-## :bar_chart: Repo Pulse
+# Start with debug logging
+.\chaturbate-dvr.exe --debug
 
-<p align="center">
-  <img src="https://repobeats.axiom.co/api/embed/e8ec122a9f6217881b46ffee305942fc99b8c008.svg" alt="Repobeats analytics" />
-</p>
+# Specify output directory
+.\chaturbate-dvr.exe --output-dir D:\videos
 
----
+# Show version
+.\chaturbate-dvr.exe --version
+```
 
-## :star: Star History
+### Channel Management
 
-<a href="https://star-history.com/#vasud3v/chaturbate-recorder&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=vasud3v/chaturbate-recorder&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=vasud3v/chaturbate-recorder&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=vasud3v/chaturbate-recorder&type=Date" width="70%" />
- </picture>
-</a>
+```bash
+# Add a channel
+.\chaturbate-dvr.exe add <username>
 
----
+# Remove a channel
+.\chaturbate-dvr.exe remove <username>
 
-## :heart: Support
+# Pause a channel
+.\chaturbate-dvr.exe pause <username>
 
-If this project helps you, consider giving it a :star::
+# Resume a channel
+.\chaturbate-dvr.exe resume <username>
+```
 
-<p align="center">
-  <a href="https://github.com/vasud3v/chaturbate-recorder/stargazers">
-    <img src="https://img.shields.io/badge/⭐_Star_This_Repo-e94560?style=for-the-badge&logo=github&logoColor=white" alt="Star" height="40" />
-  </a>
-</p>
+### Other Commands
 
----
+```bash
+# Upload a local video file
+.\chaturbate-dvr.exe upload <file_path>
 
-## :trophy: Credits & Acknowledgements
+# Run database migration
+.\chaturbate-dvr.exe migrate
 
-<div align="center">
+# Start a recording session
+.\chaturbate-dvr.exe session <username>
 
-### Original Creator
+# Recover orphaned files
+.\chaturbate-dvr.exe orphan
 
-**[TeaCat](https://github.com/teacat)** — the brilliant mind behind the original [chaturbate-dvr](https://github.com/teacat/chaturbate-dvr)
+# Start cloudflare tunnel only
+.\chaturbate-dvr.exe tunnel
+```
 
-Without TeaCat's foundational work, none of this would exist. The core recording engine, HLS capture logic, and initial architecture are all thanks to their dedication. This project continues their vision with extended features.
+## Architecture
 
-<br/>
+```
+MiniDelectableService/
+├── main.go                    # Entry point, CLI parsing, signal handling
+├── config/                    # FFmpeg detection, concurrency config
+├── entity/                    # Data models (ChannelConfig, Events)
+├── server/                    # Global state, Supabase client, cache, disk monitor
+├── manager/                   # Channel lifecycle, SSE, file watcher, sessions
+├── channel/                   # Core recording logic
+│   ├── channel.go             # Channel struct, context lifecycle
+│   ├── channel_record.go      # HLS download, stream monitoring
+│   ├── channel_file.go        # File creation, segment writing
+│   ├── channel_compress.go    # GPU detection, MP4 muxing
+│   ├── channel_upload.go      # Multi-host upload, dedup
+│   ├── channel_thumbnail.go   # Thumbnail/sprite/GIF generation
+│   ├── pipeline.go            # Crash-recoverable post-recording pipeline
+│   └── upload_tracker.go      # Upload journal for crash recovery
+├── chaturbate/                # Chaturbate API, HLS parsing, CDN failover
+├── stripchat/                 # Stripchat API client
+├── site/                      # Site interface (FetchStream, GetRoomStatus)
+├── router/                    # Gin web server, API routes, SSE
+│   ├── view/templates/        # Embedded HTML (Tailwind CSS, dark mode)
+│   └── videos_handler.go      # Video browser with Supabase + local scan
+├── uploader/                  # Upload hosts (GoFile, Streamtape, VOE.sx, etc.)
+├── database/                  # Supabase REST client, migrations
+├── internal/                  # HTTP client (httpcloak), rate limiter, errors
+├── watcher/                   # fsnotify file watcher
+├── scripts/                   # Diagnostic and utility scripts
+├── docs/                      # Proxy/cookie/setup documentation
+├── setup.bat                  # Automated Windows setup
+└── setup.ps1                  # PowerShell equivalent
+```
 
-<a href="https://github.com/teacat/chaturbate-dvr">
-  <img src="https://img.shields.io/badge/⭐_Original_Project-teacat%2Fchaturbate--dvr-ffd700?style=for-the-badge&logo=github&logoColor=white" alt="Original Project" />
-</a>
+### Recording Pipeline
 
-<br/><br/>
+```
+Chaturbate/Stripchat CDN
+        │
+        ▼
+  ┌─────────────┐
+  │ HLS Download │ ← Segment-by-segment with CDN failover
+  └──────┬──────┘
+         │
+         ▼
+  ┌─────────────┐
+  │ Raw TS/M4S  │ ← Written to pending queue
+  └──────┬──────┘
+         │
+         ▼
+  ┌─────────────────┐
+  │ GPU Compress    │ ← NVENC/AMF/QSV/VideoToolbox/CPU
+  │ (MP4 Mux)       │
+  └──────┬──────────┘
+         │
+         ▼
+  ┌─────────────────┐
+  │ Upload Pipeline │ ← GoFile, Streamtape, etc. (parallel)
+  └──────┬──────────┘
+         │
+         ▼
+  ┌─────────────────┐
+  │ Thumbnail Gen   │ ← Static + Sprite + Animated GIF
+  └──────┬──────────┘
+         │
+         ▼
+  ┌─────────────────┐
+  │ Save Metadata   │ ← Supabase database
+  └──────┬──────────┘
+         │
+         ▼
+  ┌─────────────────┐
+  │ Cleanup         │ ← Remove temp files
+  └─────────────────┘
+```
 
-### Also Thanks To
+## Web UI
 
-| Project | Purpose |
-|---------|---------|
-| [Twemoji](https://github.com/jdecked/twemoji) | UI favicon |
+The built-in web server (port 8080) provides:
 
-</div>
+- **Dashboard** — Live channel status, recording progress, disk usage
+- **Live logs** — Real-time SSE stream per channel with filtering
+- **Video browser** — Search, filter, and play recorded videos
+- **Video player** — HLS.js-powered player with quality selection and theater mode
 
----
+Access locally at `http://localhost:8080` or via Tailscale/Tunnel.
 
-## :scroll: License
+## Deployment
 
-[MIT](LICENSE) — originally by [TeaCat](https://github.com/teacat) (2024), continued here.
+### GitHub Actions (Recommended)
 
-<div align="center">
-  <sub>Built with :heart: in 2026</sub>
-</div>
+The project includes a GitHub Actions workflow that provisions a Windows RDP runner:
+
+1. Sets up a SOCKS5 proxy (Netherlands)
+2. Installs FFmpeg, Tailscale, cloudflared
+3. Clones the repo and runs `setup.bat`
+4. Creates scheduled tasks for DVR and tunnel persistence
+5. Provides RDP access via Tailscale
+
+**Required Secrets:**
+| Secret | Description |
+|---|---|
+| `env` | Contents of your `.env` file |
+| `TAILSCALE_AUTH_KEY` | Tailscale auth key for networking |
+
+**Trigger:**
+```bash
+gh workflow run secure-rdp.yml
+```
+
+### Manual Server Deployment
+
+```bash
+# On your server
+git clone https://github.com/YOUR_USERNAME/MiniDelectableService.git
+cd MiniDelectableService
+.\setup.bat -NoAppStart
+
+# DVR runs as a Windows Scheduled Task (auto-restarts on reboot)
+```
+
+## Tech Stack
+
+| Component | Technology |
+|---|---|
+| **Language** | Go 1.23 |
+| **Web Framework** | Gin |
+| **Database** | Supabase (PostgreSQL REST API) |
+| **CSS** | Tailwind CSS |
+| **TLS Fingerprinting** | httpcloak (Chrome 146) |
+| **Video Muxing** | mp4ff |
+| **HLS Parsing** | Go standard library |
+| **File Watching** | fsnotify |
+| **Upload Hosts** | GoFile, Streamtape, VOE.sx, MixDrop, Pixeldrain |
+| **Tunnel** | Cloudflare (cloudflared) |
+| **Networking** | Tailscale |
+| **CI/CD** | GitHub Actions |
+
+## License
+
+MIT License — Copyright 2024 TeaCat
+
+See [LICENSE](LICENSE) for details.

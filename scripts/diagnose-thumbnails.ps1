@@ -149,7 +149,7 @@ if ($withoutThumbnails -gt 0) {
     Write-Host "Videos without thumbnails detected. Possible causes:" -ForegroundColor White
     Write-Host ""
     Write-Host "1. FFmpeg not available during recording" -ForegroundColor Gray
-    Write-Host "   Solution: Ensure FFmpeg is installed in the container" -ForegroundColor Cyan
+    Write-Host "   Solution: Ensure FFmpeg is installed and in PATH" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "2. Pixhost.to upload failed" -ForegroundColor Gray
     Write-Host "   Solution: Check logs for 'thumbnail upload' errors" -ForegroundColor Cyan

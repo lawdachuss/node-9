@@ -126,7 +126,7 @@ try {
         Write-Host "  • The GitHub Actions workflow is not running" -ForegroundColor Gray
         Write-Host "  • The workflow hasn't reached the tunnel setup step yet" -ForegroundColor Gray
         Write-Host "  • The tunnel is still propagating (wait 1-2 minutes)" -ForegroundColor Gray
-        Write-Host "  • The Docker container crashed after tunnel creation" -ForegroundColor Gray
+        Write-Host "  • The application crashed after tunnel creation" -ForegroundColor Gray
         Write-Host ""
         Write-Host "What to do:" -ForegroundColor White
         Write-Host "  1. Check if workflow is running:" -ForegroundColor Gray

@@ -8,38 +8,8 @@ Write-Host ""
 $issues = @()
 $warnings = @()
 
-# Check 1: Docker Installation
-Write-Host "[1/7] Checking Docker..." -ForegroundColor Yellow
-try {
-    $dockerVersion = docker --version 2>$null
-    if ($dockerVersion) {
-        Write-Host "  ✅ Docker installed: $dockerVersion" -ForegroundColor Green
-    } else {
-        $issues += "Docker is not installed"
-        Write-Host "  ❌ Docker not found" -ForegroundColor Red
-    }
-} catch {
-    $issues += "Docker is not installed"
-    Write-Host "  ❌ Docker not found" -ForegroundColor Red
-}
-
-# Check 2: Docker Compose
-Write-Host "[2/7] Checking Docker Compose..." -ForegroundColor Yellow
-try {
-    $composeVersion = docker-compose --version 2>$null
-    if ($composeVersion) {
-        Write-Host "  ✅ Docker Compose installed: $composeVersion" -ForegroundColor Green
-    } else {
-        $warnings += "Docker Compose not found (optional)"
-        Write-Host "  ⚠️  Docker Compose not found" -ForegroundColor Yellow
-    }
-} catch {
-    $warnings += "Docker Compose not found (optional)"
-    Write-Host "  ⚠️  Docker Compose not found" -ForegroundColor Yellow
-}
-
-# Check 3: Settings File
-Write-Host "[3/7] Checking settings.json..." -ForegroundColor Yellow
+# Check 1: Settings File
+Write-Host "[1/6] Checking settings.json..." -ForegroundColor Yellow
 $settingsPath = "settings.json"
 if (-not (Test-Path $settingsPath)) {
     $settingsPath = "conf/settings.json"
@@ -84,8 +54,8 @@ if (Test-Path $settingsPath) {
     Write-Host "  ❌ Settings file not found" -ForegroundColor Red
 }
 
-# Check 4: Channels Configuration
-Write-Host "[4/7] Checking channels.json..." -ForegroundColor Yellow
+# Check 2: Channels Configuration
+Write-Host "[2/6] Checking channels.json..." -ForegroundColor Yellow
 $channelsPath = "conf/channels.json"
 if (Test-Path $channelsPath) {
     $channels = Get-Content $channelsPath -Raw | ConvertFrom-Json
@@ -101,8 +71,8 @@ if (Test-Path $channelsPath) {
     Write-Host "  ⚠️  Channels file not found" -ForegroundColor Yellow
 }
 
-# Check 5: GoOnDVR Executable
-Write-Host "[5/7] Checking GoOnDVR executable..." -ForegroundColor Yellow
+# Check 3: GoOnDVR Executable
+Write-Host "[3/6] Checking GoOnDVR executable..." -ForegroundColor Yellow
 if (Test-Path "goondvr.exe") {
     Write-Host "  ✅ goondvr.exe found" -ForegroundColor Green
 } else {
@@ -110,8 +80,8 @@ if (Test-Path "goondvr.exe") {
     Write-Host "  ⚠️  goondvr.exe not found" -ForegroundColor Yellow
 }
 
-# Check 6: Videos Directory
-Write-Host "[6/7] Checking videos directory..." -ForegroundColor Yellow
+# Check 4: Videos Directory
+Write-Host "[4/6] Checking videos directory..." -ForegroundColor Yellow
 if (Test-Path "videos") {
     $videoFiles = Get-ChildItem -Path "videos" -Recurse -File | Where-Object { $_.Extension -in @('.mp4', '.ts', '.mkv') }
     Write-Host "  ✅ Videos directory exists" -ForegroundColor Green
@@ -126,8 +96,8 @@ if (Test-Path "videos") {
     Write-Host "  ⚠️  Videos directory not found (will be created)" -ForegroundColor Yellow
 }
 
-# Check 7: Internet Connectivity
-Write-Host "[7/7] Checking internet connectivity..." -ForegroundColor Yellow
+# Check 5: Internet Connectivity
+Write-Host "[5/6] Checking internet connectivity..." -ForegroundColor Yellow
 try {
     $chaturbateResponse = Invoke-WebRequest -Uri "https://chaturbate.com" -Method GET -TimeoutSec 10 -ErrorAction Stop
     Write-Host "  ✅ Can reach chaturbate.com" -ForegroundColor Green
@@ -172,20 +142,14 @@ if ($issues.Count -eq 0 -and $warnings.Count -eq 0) {
     Write-Host "🔧 RECOMMENDED ACTIONS:" -ForegroundColor Cyan
     Write-Host ""
     
-    if ($issues -contains "Docker is not installed") {
-        Write-Host "1. Install Docker Desktop:" -ForegroundColor White
-        Write-Host "   https://www.docker.com/products/docker-desktop/" -ForegroundColor Gray
-        Write-Host ""
-    }
-    
     if ($warnings -match "cookies") {
-        Write-Host "2. Get fresh cookies:" -ForegroundColor White
+        Write-Host "1. Get fresh cookies:" -ForegroundColor White
         Write-Host "   Extract cookies from browser after logging into Chaturbate" -ForegroundColor Gray
         Write-Host ""
     }
     
     if ($issues -match "Settings file") {
-        Write-Host "3. Create settings file:" -ForegroundColor White
+        Write-Host "2. Create settings file:" -ForegroundColor White
         Write-Host "   Copy settings.json.example to settings.json" -ForegroundColor Gray
         Write-Host ""
     }

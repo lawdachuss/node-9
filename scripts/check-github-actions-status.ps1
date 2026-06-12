@@ -136,9 +136,9 @@ try {
                     if ($statusCode -eq 502 -or $statusCode -eq 503 -or $statusCode -eq 504) {
                         Write-Host ""
                         Write-Host "🔍 Gateway error detected. Possible causes:" -ForegroundColor Yellow
-                        Write-Host "  • The Docker container hasn't started yet (wait 1-2 minutes)" -ForegroundColor Gray
+                        Write-Host "  • The application hasn't started yet (wait 1-2 minutes)" -ForegroundColor Gray
                         Write-Host "  • The app crashed during startup" -ForegroundColor Gray
-                        Write-Host "  • Port 8080 is not accessible inside the container" -ForegroundColor Gray
+                        Write-Host "  • Port 8080 is not accessible" -ForegroundColor Gray
                         Write-Host ""
                         Write-Host "Check the 'Build and start recorder' step in the workflow logs:" -ForegroundColor White
                         Write-Host "  $($activeRun.url)" -ForegroundColor Cyan
