@@ -1053,6 +1053,7 @@ func UploadOrphanedFile(filePath, thumbURL, spriteURL, previewURL string) bool {
 		cfg.StreamtapeKey,
 		cfg.MixdropEmail,
 		cfg.MixdropToken,
+		cfg.SeekStreamingKey,
 		nil, // no logger for orphan recovery
 	)
 

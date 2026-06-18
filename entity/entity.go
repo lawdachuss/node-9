@@ -165,11 +165,12 @@ type Config struct {
 	DiskCriticalPercent     int  // auto-delete oldest recordings when disk exceeds this (0 = disabled, default 90)
 	MaxLocalAgeDays         int  // delete local files older than N days if uploaded (0 = disabled)
 
-	VoeSXAPIKey       string
-	StreamtapeLogin   string
-	StreamtapeKey     string
-	MixdropEmail      string
-	MixdropToken      string
+	VoeSXAPIKey        string
+	StreamtapeLogin    string
+	StreamtapeKey      string
+	MixdropEmail       string
+	MixdropToken       string
+	SeekStreamingKey    string
 
 	SupabaseURL    string
 	SupabaseAPIKey string

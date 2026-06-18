@@ -107,7 +107,7 @@ func main() {
 		StreamtapeKey:     os.Getenv("STREAMTAPE_KEY"),
 		MixdropEmail:      os.Getenv("MIXDROP_EMAIL"),
 		MixdropToken:      firstNonEmpty(os.Getenv("MIXDROP_TOKEN"), os.Getenv("MIXDROP_KEY")),
-
+		SeekStreamingKey:  os.Getenv("SEEKSTREAMING_KEY"),
 	}
 
 	// Log presence (masked) of uploader credentials to help debugging without leaking secrets.
@@ -118,10 +118,11 @@ func main() {
 			}
 			return fmt.Sprintf("<len=%d>", len(s))
 		}
-		log.Printf("uploader creds: MixdropEmail=%t MixdropToken=%s StreamtapeLogin=%t StreamtapeKey=%s",
-			server.Config.MixdropEmail != "", mask(server.Config.MixdropToken),
-			server.Config.StreamtapeLogin != "", mask(server.Config.StreamtapeKey),
-		)
+	log.Printf("uploader creds: MixdropEmail=%t MixdropToken=%s StreamtapeLogin=%t StreamtapeKey=%s SeekStreaming=%s",
+		server.Config.MixdropEmail != "", mask(server.Config.MixdropToken),
+		server.Config.StreamtapeLogin != "", mask(server.Config.StreamtapeKey),
+		mask(server.Config.SeekStreamingKey),
+	)
 	}
 
 	dbClient := server.GetDBClient()
@@ -190,6 +191,7 @@ func main() {
 			server.Config.StreamtapeKey,
 			server.Config.MixdropEmail,
 			server.Config.MixdropToken,
+			server.Config.SeekStreamingKey,
 			&scriptLogger{},
 		)
 
@@ -217,7 +219,7 @@ func main() {
 
 		username := extractUsername(filename)
 
-		dur, probeErr := channel.VideoDurationSeconds(filePath)
+		dur, probeErr := channel.VideoDurationSeconds(p)
 		if probeErr != nil {
 			log.Printf("could not probe duration for %s: %v", filename, probeErr)
 		}

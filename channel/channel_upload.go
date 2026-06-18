@@ -26,6 +26,8 @@ func embedURLFromLink(host, link string) string {
 		return link
 	case "Mixdrop":
 		return link
+	case "SeekStreaming":
+		return link
 	}
 	return ""
 }
@@ -84,6 +86,7 @@ func (ch *Channel) uploadFile(filePath string, thumbURL, spriteURL, previewURL s
 		cfg.StreamtapeKey,
 		cfg.MixdropEmail,
 		cfg.MixdropToken,
+		cfg.SeekStreamingKey,
 		ch, // Channel implements uploader.Logger
 	)
 

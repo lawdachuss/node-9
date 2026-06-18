@@ -107,6 +107,7 @@ type MultiHostUploader struct {
 	voesx      *VoeSXUploader
 	streamtape *StreamtapeUploader
 	mixdrop    *MixdropUploader
+	seekstreaming *SeekStreamingUploader
 	log        Logger
 	hosts      map[string]uploaderFunc // host name -> upload function, lazy-init
 	progress   ProgressFunc
@@ -129,10 +130,13 @@ func (m *MultiHostUploader) initHosts() {
 	if m.mixdrop != nil && m.mixdrop.email != "" && m.mixdrop.token != "" {
 		m.hosts["Mixdrop"] = m.mixdrop.UploadWithProgress
 	}
+	if m.seekstreaming != nil && m.seekstreaming.key != "" {
+		m.hosts["SeekStreaming"] = m.seekstreaming.UploadWithProgress
+	}
 }
 
 // NewMultiHostUploader creates a new multi-host uploader
-func NewMultiHostUploader(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken string, log Logger) *MultiHostUploader {
+func NewMultiHostUploader(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken, seekStreamingKey string, log Logger) *MultiHostUploader {
 	if log == nil {
 		log = &nilLogger{}
 	}
@@ -141,6 +145,7 @@ func NewMultiHostUploader(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEm
 		voesx:      NewVoeSXUploader(voeSXAPIKey),
 		streamtape: NewStreamtapeUploader(streamtapeLogin, streamtapeKey),
 		mixdrop:    NewMixdropUploader(mixdropEmail, mixdropToken),
+		seekstreaming: NewSeekStreamingUploader(seekStreamingKey),
 		log:        log,
 	}
 }
