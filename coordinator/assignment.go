@@ -87,7 +87,14 @@ func (c *Coordinator) runClaimCycle() {
 	if strings.HasPrefix(c.NodeID, "node-") && totalNodes < 2 {
 		totalNodes = 2
 	}
-	fairShare := int(math.Ceil(float64(totalPool) / float64(totalNodes)))
+	// Use live-channel count for fair-share so nodes only compete for
+	// channels that are actually online.  Falls back to total pool when
+	// live-check hasn't run yet (TotalLiveChannels == 0 but pool is non-empty).
+	livePool := stats.TotalLiveChannels
+	if livePool == 0 && totalPool > 0 {
+		livePool = totalPool
+	}
+	fairShare := int(math.Ceil(float64(livePool) / float64(totalNodes)))
 
 	myLoad, err := c.Client.CountMyAssignments(c.NodeID)
 	if err != nil {
@@ -104,8 +111,8 @@ func (c *Coordinator) runClaimCycle() {
 			return
 		}
 		if len(released) > 0 {
-			log.Printf("[coordinator] released %d excess channel(s) (load: %d -> %d, fairShare: %d, totalPool: %d)",
-				len(released), myLoad, myLoad-len(released), fairShare, totalPool)
+			log.Printf("[coordinator] released %d excess channel(s) (load: %d -> %d, fairShare: %d, livePool: %d, totalPool: %d)",
+				len(released), myLoad, myLoad-len(released), fairShare, livePool, totalPool)
 			for _, ca := range released {
 				if c.Manager != nil {
 					c.Manager.RemoveChannelForReassignment(ca.Username)
@@ -124,8 +131,8 @@ func (c *Coordinator) runClaimCycle() {
 			return
 		}
 		if len(claimed) > 0 {
-			log.Printf("[coordinator] claimed %d new channel(s) (load: %d -> %d, fairShare: %d, totalPool: %d)",
-				len(claimed), myLoad, myLoad+len(claimed), fairShare, totalPool)
+			log.Printf("[coordinator] claimed %d new channel(s) (load: %d -> %d, fairShare: %d, livePool: %d, totalPool: %d)",
+				len(claimed), myLoad, myLoad+len(claimed), fairShare, livePool, totalPool)
 			for _, ca := range claimed {
 				if c.Manager != nil {
 					if err := c.Manager.CreateChannelFromAssignment(&ca); err != nil {
@@ -145,17 +152,17 @@ func (c *Coordinator) CreateChannelAssignment(conf *entity.ChannelConfig) error 
 	}
 
 	ca := database.ChannelAssignment{
-		Username:                 conf.Username,
-		Site:                     conf.Site,
-		Status:                   "unassigned",
-		IsLive:                   false,
-		Framerate:                conf.Framerate,
-		Resolution:               conf.Resolution,
-		Pattern:                  conf.Pattern,
-		MaxDuration:              conf.MaxDuration,
-		MaxFilesize:              conf.MaxFilesize,
-		Compress:                 conf.Compress,
-		MinDurationBeforeUpload:  conf.MinDurationBeforeUpload,
+		Username:                conf.Username,
+		Site:                    conf.Site,
+		Status:                  "unassigned",
+		IsLive:                  false,
+		Framerate:               conf.Framerate,
+		Resolution:              conf.Resolution,
+		Pattern:                 conf.Pattern,
+		MaxDuration:             conf.MaxDuration,
+		MaxFilesize:             conf.MaxFilesize,
+		Compress:                conf.Compress,
+		MinDurationBeforeUpload: conf.MinDurationBeforeUpload,
 	}
 
 	if err := c.Client.BulkInsertAssignments([]database.ChannelAssignment{ca}); err != nil {

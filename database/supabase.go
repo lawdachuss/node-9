@@ -819,24 +819,24 @@ func (c *Client) GetDeadNodes(timeout time.Duration) ([]string, error) {
 
 // ChannelAssignment represents the assignment of a channel to a node.
 type ChannelAssignment struct {
-	Username    string `json:"username"`
-	Site        string `json:"site"`
-	AssignedNode string `json:"assigned_node,omitempty"`
-	Status      string `json:"status"`
-	IsLive      bool   `json:"is_live"`
+	Username      string `json:"username"`
+	Site          string `json:"site"`
+	AssignedNode  string `json:"assigned_node,omitempty"`
+	Status        string `json:"status"`
+	IsLive        bool   `json:"is_live"`
 	LiveCheckedAt string `json:"live_checked_at,omitempty"`
-	AssignedAt  string `json:"assigned_at,omitempty"`
+	AssignedAt    string `json:"assigned_at,omitempty"`
 	LastHeartbeat string `json:"last_heartbeat,omitempty"`
 	// Config snapshot
-	Framerate                int    `json:"framerate"`
-	Resolution               int    `json:"resolution"`
-	Pattern                  string `json:"pattern"`
-	MaxDuration              int    `json:"max_duration"`
-	MaxFilesize              int    `json:"max_filesize"`
-	Compress                 bool   `json:"compress"`
-	MinDurationBeforeUpload  int    `json:"min_duration_before_upload"`
-	CreatedAt                string `json:"created_at,omitempty"`
-	UpdatedAt                string `json:"updated_at,omitempty"`
+	Framerate               int    `json:"framerate"`
+	Resolution              int    `json:"resolution"`
+	Pattern                 string `json:"pattern"`
+	MaxDuration             int    `json:"max_duration"`
+	MaxFilesize             int    `json:"max_filesize"`
+	Compress                bool   `json:"compress"`
+	MinDurationBeforeUpload int    `json:"min_duration_before_upload"`
+	CreatedAt               string `json:"created_at,omitempty"`
+	UpdatedAt               string `json:"updated_at,omitempty"`
 }
 
 // AssignmentStats holds summary statistics for fair-share calculation.
@@ -860,7 +860,7 @@ func (c *Client) ClaimChannels(nodeID string, limit int) ([]ChannelAssignment, e
 	}
 
 	resp, err := c.requestWithRetry("PATCH",
-		fmt.Sprintf(	"/channel_assignments?assigned_node=is.null&status=eq.unassigned&order=username.asc&limit=%d", limit),
+		fmt.Sprintf("/channel_assignments?assigned_node=is.null&status=eq.unassigned&is_live=eq.true&order=username.asc&limit=%d", limit),
 		body)
 	if err != nil {
 		return nil, err
@@ -924,14 +924,29 @@ func (c *Client) ReleaseNodeChannels(nodeID string) error {
 // Uses a two-step approach (GET usernames, then PATCH by username) because
 // PostgREST PATCH ignores the `limit` parameter.
 func (c *Client) ReleaseExcessChannels(nodeID string, limit int) ([]ChannelAssignment, error) {
-	// Step 1: GET the usernames we want to release
-	var target []ChannelAssignment
+	// Step 1: GET the usernames we want to release.
+	// Prioritise releasing offline channels first (is_live=false), then online
+	// ones.  Within each group we pick alphabetically to be deterministic.
+	var offline, online []ChannelAssignment
+
 	err := c.get(
-		fmt.Sprintf("/channel_assignments?assigned_node=eq.%s&status=neq.unassigned&select=username,site&order=username.desc&limit=%d",
-			url.QueryEscape(nodeID), limit), &target)
+		fmt.Sprintf("/channel_assignments?assigned_node=eq.%s&status=neq.unassigned&is_live=eq.false&select=username,site&order=username.asc&limit=%d",
+			url.QueryEscape(nodeID), limit), &offline)
 	if err != nil {
 		return nil, err
 	}
+
+	remaining := limit - len(offline)
+	if remaining > 0 {
+		err = c.get(
+			fmt.Sprintf("/channel_assignments?assigned_node=eq.%s&status=neq.unassigned&is_live=eq.true&select=username,site&order=username.asc&limit=%d",
+				url.QueryEscape(nodeID), remaining), &online)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	target := append(offline, online...)
 	if len(target) == 0 {
 		return nil, nil
 	}
@@ -1051,13 +1066,21 @@ func (c *Client) GetAllAssignments() ([]ChannelAssignment, error) {
 func (c *Client) GetAssignmentStats() (*AssignmentStats, error) {
 	stats := &AssignmentStats{}
 
-	// Count all channels in the pool
+	// Count all channels in the pool (used for informational purposes)
 	var all []ChannelAssignment
 	err := c.get("/channel_assignments?select=username&limit=50000", &all)
 	if err != nil {
 		return nil, err
 	}
 	stats.TotalPoolChannels = len(all)
+
+	// Count only live channels for fair-share distribution
+	var live []ChannelAssignment
+	err = c.get("/channel_assignments?is_live=eq.true&select=username&limit=50000", &live)
+	if err != nil {
+		return nil, err
+	}
+	stats.TotalLiveChannels = len(live)
 
 	// Count total unassigned channels
 	var unassigned []ChannelAssignment
