@@ -519,6 +519,9 @@ jobs:
             "`$env:SOCKS_PROXY = `"$proxyUrl`"",
             "`$env:PROXY_URL = `"$proxyUrl`"",
             "`$env:PROXY_SERVER = `"$proxyUrl`"",
+            "# Pooled mode env vars (distributed shards)",
+            "`$env:CHANNEL_POOL_MODE = `"${{ secrets.CHANNEL_POOL_MODE }}`"",
+            "`$env:NODE_ID = `"${{ secrets.NODE_ID }}`"",
             "`$env:USER_AGENT = `"$env:USER_AGENT`"",
             "# Disable HTTP_PROXY/HTTPS_PROXY for Go's default transport",
             "# to prevent Go from trying to use SOCKS5 as HTTP proxy.",
@@ -830,6 +833,9 @@ jobs:
 
       - name: Keep Runner Alive
         shell: powershell
+        env:
+          CHANNEL_POOL_MODE: ${{ secrets.CHANNEL_POOL_MODE }}
+          NODE_ID: ${{ secrets.NODE_ID }}
         run: |
           $repoDir = "D:\repos\MiniDelectableService"
           $dvrExe = "$repoDir\chaturbate-dvr.exe"

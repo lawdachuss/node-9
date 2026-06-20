@@ -27,10 +27,24 @@ func init() {
 		instanceID = "default"
 	}
 	nodeID = detectNodeID()
-	channelPoolMode = os.Getenv("CHANNEL_POOL_MODE")
-	if channelPoolMode == "" {
-		channelPoolMode = "isolated"
+	channelPoolMode = detectPoolMode()
+}
+
+// detectPoolMode auto-detects pooled mode:
+// 1. CHANNEL_POOL_MODE env var (explicit override)
+// 2. GITHUB_REPOSITORY env var — auto-enable if path contains "node-"
+// 3. Default to "isolated"
+func detectPoolMode() string {
+	if mode := os.Getenv("CHANNEL_POOL_MODE"); mode != "" {
+		return mode
 	}
+	if repo := os.Getenv("GITHUB_REPOSITORY"); repo != "" {
+		// Auto-enable pooled mode for repos named node-*
+		if strings.Contains(repo, "node-") {
+			return entity.PoolModePooled
+		}
+	}
+	return entity.PoolModeIsolated
 }
 
 // detectNodeID auto-detects the node identity using a priority chain:
