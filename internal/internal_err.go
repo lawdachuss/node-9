@@ -12,6 +12,7 @@ var (
 	ErrStopped         = errors.New("channel stopped")
 	ErrGeoBlocked      = errors.New("stream not accessible (may be geo-blocked)")
 	ErrNotFound        = errors.New("not found (404)")
+	ErrPasswordRequired = errors.New("room requires a password")
 	// ErrStreamStalled is returned when the HLS segment loop makes no forward
 	// progress for several consecutive poll cycles.  This usually means the
 	// CDN session token embedded in the segment URLs has expired.  The Monitor

@@ -115,6 +115,9 @@ func fetchAPIResponse(ctx context.Context, client *internal.Req, username string
 		body, e = client.Get(ctx, apiURL)
 		if e != nil {
 			internal.ReportChaturbateFailure()
+			if errors.Is(e, internal.ErrPasswordRequired) {
+				return retry.Unrecoverable(e)
+			}
 			return e
 		}
 		if body == "" {
@@ -157,9 +160,15 @@ func fetchStream(ctx context.Context, client *internal.Req, username string, roo
 	// Try POST API first
 	body, err := internal.PostChaturbateAPI(ctx, username)
 	if err != nil {
+		if errors.Is(err, internal.ErrPasswordRequired) {
+			return nil, StatusPrivate, internal.ErrPasswordRequired
+		}
 		// Try the GET API as fallback
 		resp, apiErr := fetchAPIResponse(ctx, client, username)
 		if apiErr != nil {
+			if errors.Is(apiErr, internal.ErrPasswordRequired) {
+				return nil, StatusPrivate, internal.ErrPasswordRequired
+			}
 			return nil, "", apiErr
 		}
 
@@ -265,6 +274,9 @@ func fetchStream(ctx context.Context, client *internal.Req, username string, roo
 				default:
 					return nil, getResp.RoomStatus, internal.ErrChannelOffline
 				}
+			}
+			if errors.Is(apiErr, internal.ErrPasswordRequired) {
+				return nil, StatusPrivate, internal.ErrPasswordRequired
 			}
 			return nil, resp.RoomStatus, internal.ErrChannelOffline
 		}

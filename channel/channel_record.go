@@ -43,7 +43,7 @@ func (ch *Channel) Monitor() {
 				return
 			}
 			switch {
-			case errors.Is(err, internal.ErrChannelOffline) || errors.Is(err, internal.ErrPrivateStream):
+			case errors.Is(err, internal.ErrChannelOffline) || errors.Is(err, internal.ErrPrivateStream) || errors.Is(err, internal.ErrPasswordRequired):
 				ch.stateMu.Lock()
 				ch.IsOnline = false
 				ch.IsConnecting = false
@@ -70,7 +70,7 @@ func (ch *Channel) Monitor() {
 			switch {
 			case errors.Is(err, internal.ErrStreamStalled):
 				return 15*time.Second + time.Duration(rand.Int63n(16))*time.Second
-			case errors.Is(err, internal.ErrChannelOffline) || errors.Is(err, internal.ErrPrivateStream):
+			case errors.Is(err, internal.ErrChannelOffline) || errors.Is(err, internal.ErrPrivateStream) || errors.Is(err, internal.ErrPasswordRequired):
 				base := time.Duration(server.Config.Interval) * time.Minute
 				return base + time.Duration(rand.Int63n(31))*time.Second
 			default:

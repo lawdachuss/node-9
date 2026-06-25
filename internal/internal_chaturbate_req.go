@@ -107,6 +107,12 @@ func PostChaturbateAPI(ctx context.Context, username string) (string, error) {
 
 		bodyStr = string(body)
 
+		if resp.StatusCode == 401 {
+			ReportChaturbateFailure()
+			fmt.Printf("[DEBUG] POST API 401 response for %s: %s\n", username, bodyStr)
+			return retry.Unrecoverable(fmt.Errorf("password required: %w", ErrPasswordRequired))
+		}
+
 		if resp.StatusCode == 403 {
 			ReportChaturbateFailure()
 			fmt.Printf("[DEBUG] POST API 403 response for %s: %s\n", username, bodyStr)

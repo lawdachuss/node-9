@@ -112,6 +112,17 @@ func (h *Req) GetBytes(ctx context.Context, url string) ([]byte, error) {
 		return nil, ErrAgeVerification
 	}
 
+	if resp.StatusCode == http.StatusUnauthorized {
+		if strings.Contains(string(b), "This room requires a password") {
+			return nil, ErrPasswordRequired
+		}
+		snippet := string(b)
+		if len(snippet) > 200 {
+			snippet = snippet[:200]
+		}
+		return nil, fmt.Errorf("unexpected HTTP %d: %s", resp.StatusCode, snippet)
+	}
+
 	if resp.StatusCode == http.StatusForbidden {
 		return nil, fmt.Errorf("forbidden: %w", ErrPrivateStream)
 	}
@@ -172,6 +183,17 @@ func (h *Req) GetBytesWithTimeout(ctx context.Context, url string, timeout time.
 
 	if strings.Contains(string(b), "Verify your age") {
 		return nil, ErrAgeVerification
+	}
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		if strings.Contains(string(b), "This room requires a password") {
+			return nil, ErrPasswordRequired
+		}
+		snippet := string(b)
+		if len(snippet) > 200 {
+			snippet = snippet[:200]
+		}
+		return nil, fmt.Errorf("unexpected HTTP %d: %s", resp.StatusCode, snippet)
 	}
 
 	if resp.StatusCode == http.StatusForbidden {
