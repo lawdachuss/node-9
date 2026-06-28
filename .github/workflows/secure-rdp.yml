@@ -45,14 +45,13 @@ jobs:
           $hasActiveOverlap = $false
           
           foreach ($run in $runs) {
-            if ($run.databaseId -ne $currentRunId -and $run.status -ne 'completed') {
+            if ($run.databaseId -ne $currentRunId -and $run.status -eq 'in_progress') {
               $startedAt = [DateTime]::Parse($run.startedAt).ToUniversalTime()
               $now = [DateTime]::UtcNow
               $elapsedMinutes = ($now - $startedAt).TotalMinutes
               
-              Write-Host "Found other active run: ID=$($run.databaseId), Status=$($run.status), StartedAt=$startedAt ($elapsedMinutes minutes ago)"
+              Write-Host "Found other in_progress run: ID=$($run.databaseId), StartedAt=$startedAt ($elapsedMinutes minutes ago)"
               
-              # If the active run started less than 5 hours and 48 minutes ago (348 minutes to be safe with minor delays)
               if ($elapsedMinutes -lt 348) {
                 $hasActiveOverlap = $true
                 break
