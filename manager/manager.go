@@ -789,19 +789,7 @@ func (m *Manager) StartSession(d time.Duration) {
 }
 
 func (m *Manager) sessionLoop(d time.Duration) {
-	channels := m.channelCount()
-	if channels == 0 {
-		m.sessionDeadlineMu.Lock()
-		m.sessionDeadline = time.Time{}
-		m.sessionDuration = 0
-		m.sessionDeadlineMu.Unlock()
-		log.Println("[session] no channels to record — stopping session loop")
-		m.sessionMu.Lock()
-		m.sessionStarted = false
-		m.sessionMu.Unlock()
-		return
-	}
-	log.Printf("[session] recording session started — next stop in %s with %d channel(s)", d, channels)
+	log.Printf("[session] recording session started — next stop in %s with %d channel(s)", d, m.channelCount())
 
 	deadline := time.Now().Add(d)
 	m.sessionDeadlineMu.Lock()
