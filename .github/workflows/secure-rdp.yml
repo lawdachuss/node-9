@@ -100,7 +100,11 @@ jobs:
           function Test-Proxy($proxyUrl) {
             try {
               $ip = curl.exe -x $proxyUrl -s -m 5 https://api.ipify.org 2>$null
-              if ($ip -match '^\d+\.\d+\.\d+\.\d+$') { return $ip.Trim() }
+              if ($ip -notmatch '^\d+\.\d+\.\d+\.\d+$') { return $null }
+              # Also verify proxy can reach Chaturbate — ipify alone is not enough
+              $cb = curl.exe -x $proxyUrl -s -o NUL -w "%{http_code}" -m 10 https://chaturbate.com 2>$null
+              if ($cb -ne "200") { return $null }
+              return $ip.Trim()
             } catch {}
             return $null
           }
