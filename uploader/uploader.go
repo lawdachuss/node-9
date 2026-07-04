@@ -162,6 +162,8 @@ type UploadResult struct {
 	Host         string
 	DownloadLink string
 	Error        error
+	PosterURL    string // auto-generated poster (SeekStreaming)
+	PreviewURL   string // auto-generated preview (SeekStreaming)
 }
 
 // MultiHostUploader handles uploading to multiple hosts simultaneously
@@ -296,12 +298,17 @@ func (m *MultiHostUploader) UploadSelected(filePath string, hosts []string) []Up
 			defer wg.Done()
 			m.log.Info("upload: starting %s upload for %s", host, filePath)
 			link, err := fn(filePath, progressFn)
-			mu.Lock()
-			results = append(results, UploadResult{
+			result := UploadResult{
 				Host:         host,
 				DownloadLink: link,
 				Error:        err,
-			})
+			}
+			if err == nil && host == "SeekStreaming" && m.seekstreaming != nil {
+				result.PosterURL = m.seekstreaming.LastPosterURL()
+				result.PreviewURL = m.seekstreaming.LastPreviewURL()
+			}
+			mu.Lock()
+			results = append(results, result)
 			mu.Unlock()
 			if err != nil {
 				m.log.Error("upload: %s failed for %s: %v", host, filePath, err)

@@ -1251,13 +1251,22 @@ func UploadOrphanedFile(filePath, thumbURL, spriteURL, previewURL string) bool {
 		return false
 	}
 
-	// Build links map
+	// Build links map and extract SeekStreaming poster/preview
 	links := map[string]string{}
 	var embedURL string
+	var seekPosterURL, seekPreviewURL string
 	for _, r := range success {
 		links[r.Host] = r.DownloadLink
 		if embedURL == "" {
 			embedURL = embedURLFromLink(r.Host, r.DownloadLink)
+		}
+		if r.Host == "SeekStreaming" {
+			if r.PosterURL != "" {
+				seekPosterURL = r.PosterURL
+			}
+			if r.PreviewURL != "" {
+				seekPreviewURL = r.PreviewURL
+			}
 		}
 	}
 
@@ -1281,6 +1290,7 @@ func UploadOrphanedFile(filePath, thumbURL, spriteURL, previewURL string) bool {
 	if err := server.SaveRecordingWithLinks(
 		extractUsernameFromFilename(filename), filename, timestamp,
 		"", nil, 0, "", 0, filesize, dur, "", embedURL, thumbURL, spriteURL, previewURL, links,
+		seekPosterURL, seekPreviewURL,
 	); err != nil {
 		recoveryLogf(filename, "failed to save recording to Supabase: %v", err)
 		if fileHash != "" {

@@ -420,6 +420,20 @@ func (p *Pipeline) posterFromHosts() string {
 	return ""
 }
 
+// seekStreamingMediaFromHosts fetches both poster and preview URLs from SeekStreaming
+// using the video ID extracted from the embed URL stored in Links.
+func (p *Pipeline) seekStreamingMediaFromHosts() (posterURL, previewURL string) {
+	if embedURL, ok := p.Links["SeekStreaming"]; ok {
+		videoID := uploader.ExtractSeekStreamingVideoID(embedURL)
+		if videoID != "" {
+			if cfg := server.Config; cfg != nil && cfg.SeekStreamingKey != "" {
+				posterURL, previewURL, _ = uploader.GetSeekStreamingMediaURLs(cfg.SeekStreamingKey, videoID)
+			}
+		}
+	}
+	return
+}
+
 // stageSaveMetadata persists recording metadata and all links to Supabase.
 func (p *Pipeline) stageSaveMetadata(ch *Channel) error {
 	// Retry thumbnail generation if it failed during StageThumbnailUpload.
@@ -449,6 +463,11 @@ func (p *Pipeline) stageSaveMetadata(ch *Channel) error {
 
 	if len(p.Links) == 0 {
 		return fmt.Errorf("no upload links to save for %s", p.Filename)
+	}
+
+	seekPosterURL, seekPreviewURL := p.seekStreamingMediaFromHosts()
+	if seekPosterURL != "" || seekPreviewURL != "" {
+		ch.Info("upload: found SeekStreaming media — poster=%s preview=%s", seekPosterURL, seekPreviewURL)
 	}
 
 	timestamp := extractTimestampFromFilename(p.Filename)
@@ -484,6 +503,8 @@ func (p *Pipeline) stageSaveMetadata(ch *Channel) error {
 		p.SpriteURL,
 		p.PreviewURL,
 		p.Links,
+		seekPosterURL,
+		seekPreviewURL,
 	); err != nil {
 		ch.Error("upload: failed to save to Supabase: %v", err)
 		// Journal entries prevent retry — clean them so upload generates fresh links.

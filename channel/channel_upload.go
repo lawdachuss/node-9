@@ -193,10 +193,19 @@ func (ch *Channel) uploadFile(filePath string, thumbURL, spriteURL, previewURL s
 		dbSaved := false
 		links := map[string]string{}
 		var embedURL string
+		var seekPosterURL, seekPreviewURL string
 		for _, r := range success {
 			links[r.Host] = r.DownloadLink
 			if embedURL == "" {
 				embedURL = embedURLFromLink(r.Host, r.DownloadLink)
+			}
+			if r.Host == "SeekStreaming" {
+				if r.PosterURL != "" {
+					seekPosterURL = r.PosterURL
+				}
+				if r.PreviewURL != "" {
+					seekPreviewURL = r.PreviewURL
+				}
 			}
 		}
 
@@ -231,6 +240,8 @@ func (ch *Channel) uploadFile(filePath string, thumbURL, spriteURL, previewURL s
 			spriteURL,
 			previewURL,
 			links,
+			seekPosterURL,
+			seekPreviewURL,
 		); err != nil {
 			ch.Error("upload: failed to save to Supabase: %v", err)
 			// Journal entries were already saved — if we leave them, the upload

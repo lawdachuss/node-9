@@ -206,10 +206,19 @@ func main() {
 
 		links := map[string]string{}
 		var embedURL string
+		var seekPosterURL, seekPreviewURL string
 		for _, r := range success {
 			links[r.Host] = r.DownloadLink
 			if embedURL == "" {
 				embedURL = r.DownloadLink
+			}
+			if r.Host == "SeekStreaming" {
+				if r.PosterURL != "" {
+					seekPosterURL = r.PosterURL
+				}
+				if r.PreviewURL != "" {
+					seekPreviewURL = r.PreviewURL
+				}
 			}
 		}
 
@@ -229,7 +238,7 @@ func main() {
 		if probeErr != nil {
 			log.Printf("could not probe duration for %s: %v", filename, probeErr)
 		}
-		if err := server.SaveRecordingWithLinks(username, filename, timestamp, "", nil, 0, "", 0, filesize, dur, "", embedURL, thumbURL, spriteURL, "", links); err != nil {
+		if err := server.SaveRecordingWithLinks(username, filename, timestamp, "", nil, 0, "", 0, filesize, dur, "", embedURL, thumbURL, spriteURL, "", links, seekPosterURL, seekPreviewURL); err != nil {
 			log.Printf("failed saving metadata for %s: %v", filename, err)
 		} else {
 			log.Printf("saved metadata for %s (links: %d)", filename, len(links))

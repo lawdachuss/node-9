@@ -294,10 +294,12 @@ type Recording struct {
 	ThumbnailURL string   `json:"thumbnail_url,omitempty"`
 	SpriteURL    string   `json:"sprite_url,omitempty"`
 	PreviewURL   string   `json:"preview_url,omitempty"`
-	EmbedURL     string   `json:"embed_url,omitempty"`
-	InstanceID   string   `json:"instance_id,omitempty"`
-	CreatedAt    string   `json:"created_at,omitempty"`
-	UpdatedAt    string   `json:"updated_at,omitempty"`
+	EmbedURL                 string   `json:"embed_url,omitempty"`
+	SeekStreamingPosterURL   string   `json:"seekstreaming_poster_url,omitempty"`
+	SeekStreamingPreviewURL  string   `json:"seekstreaming_preview_url,omitempty"`
+	InstanceID               string   `json:"instance_id,omitempty"`
+	CreatedAt                string   `json:"created_at,omitempty"`
+	UpdatedAt                string   `json:"updated_at,omitempty"`
 }
 
 // SaveRecording creates or updates a recording using Supabase's upsert functionality.

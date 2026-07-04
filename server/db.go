@@ -408,19 +408,21 @@ func SaveRecordingsToDB(data []byte) error {
 
 	// Parse the JSON data
 	type RecordingEntry struct {
-		Filename     string            `json:"filename"`
-		Timestamp    string            `json:"timestamp"`
-		RoomTitle    string            `json:"room_title"`
-		Tags         []string          `json:"tags"`
-		Viewers      int               `json:"viewers"`
-		Resolution   string            `json:"resolution"`
-		Framerate    int               `json:"framerate"`
-		Links        map[string]string `json:"links"`
-		ThumbnailURL string            `json:"thumbnail_url"`
-		SpriteURL    string            `json:"sprite_url"`
-		PreviewURL   string            `json:"preview_url"`
-		EmbedURL     string            `json:"embed_url"`
-		Filesize     int64             `json:"filesize"`
+		Filename               string            `json:"filename"`
+		Timestamp              string            `json:"timestamp"`
+		RoomTitle              string            `json:"room_title"`
+		Tags                   []string          `json:"tags"`
+		Viewers                int               `json:"viewers"`
+		Resolution             string            `json:"resolution"`
+		Framerate              int               `json:"framerate"`
+		Links                  map[string]string `json:"links"`
+		ThumbnailURL           string            `json:"thumbnail_url"`
+		SpriteURL              string            `json:"sprite_url"`
+		PreviewURL             string            `json:"preview_url"`
+		EmbedURL               string            `json:"embed_url"`
+		SeekStreamingPosterURL  string            `json:"seekstreaming_poster_url"`
+		SeekStreamingPreviewURL string            `json:"seekstreaming_preview_url"`
+		Filesize               int64             `json:"filesize"`
 	}
 
 	type ChannelRecordings struct {
@@ -514,19 +516,21 @@ func LoadRecordingsFromDB() []byte {
 
 	// Convert to the old JSON format for compatibility
 	type RecordingEntry struct {
-		Filename     string            `json:"filename"`
-		Timestamp    string            `json:"timestamp"`
-		RoomTitle    string            `json:"room_title"`
-		Tags         []string          `json:"tags"`
-		Viewers      int               `json:"viewers"`
-		Resolution   string            `json:"resolution"`
-		Framerate    int               `json:"framerate"`
-		Links        map[string]string `json:"links"`
-		ThumbnailURL string            `json:"thumbnail_url"`
-		SpriteURL    string            `json:"sprite_url"`
-		PreviewURL   string            `json:"preview_url"`
-		EmbedURL     string            `json:"embed_url"`
-		Filesize     int64             `json:"filesize"`
+		Filename               string            `json:"filename"`
+		Timestamp              string            `json:"timestamp"`
+		RoomTitle              string            `json:"room_title"`
+		Tags                   []string          `json:"tags"`
+		Viewers                int               `json:"viewers"`
+		Resolution             string            `json:"resolution"`
+		Framerate              int               `json:"framerate"`
+		Links                  map[string]string `json:"links"`
+		ThumbnailURL           string            `json:"thumbnail_url"`
+		SpriteURL              string            `json:"sprite_url"`
+		PreviewURL             string            `json:"preview_url"`
+		EmbedURL               string            `json:"embed_url"`
+		SeekStreamingPosterURL  string            `json:"seekstreaming_poster_url"`
+		SeekStreamingPreviewURL string            `json:"seekstreaming_preview_url"`
+		Filesize               int64             `json:"filesize"`
 	}
 
 	type ChannelRecordings struct {
@@ -575,19 +579,21 @@ func LoadRecordingsFromDB() []byte {
 		}
 
 		entry := RecordingEntry{
-			Filename:     rec.Filename,
-			Timestamp:    rec.Timestamp,
-			RoomTitle:    rec.RoomTitle,
-			Tags:         rec.Tags,
-			Viewers:      rec.Viewers,
-			Resolution:   rec.Resolution,
-			Framerate:    rec.Framerate,
-			Links:        links,
-			ThumbnailURL: rec.ThumbnailURL,
-			SpriteURL:    rec.SpriteURL,
-			PreviewURL:   rec.PreviewURL,
-			EmbedURL:     rec.EmbedURL,
-			Filesize:     rec.Filesize,
+			Filename:               rec.Filename,
+			Timestamp:              rec.Timestamp,
+			RoomTitle:              rec.RoomTitle,
+			Tags:                   rec.Tags,
+			Viewers:                rec.Viewers,
+			Resolution:             rec.Resolution,
+			Framerate:              rec.Framerate,
+			Links:                  links,
+			ThumbnailURL:           rec.ThumbnailURL,
+			SpriteURL:              rec.SpriteURL,
+			PreviewURL:             rec.PreviewURL,
+			EmbedURL:               rec.EmbedURL,
+			SeekStreamingPosterURL:  rec.SeekStreamingPosterURL,
+			SeekStreamingPreviewURL: rec.SeekStreamingPreviewURL,
+			Filesize:               rec.Filesize,
 		}
 
 		chanData.Recordings = append(chanData.Recordings, entry)
@@ -615,29 +621,38 @@ func RecordingExists(filename string) bool {
 // SaveRecordingWithLinks saves a recording and its upload links directly to Supabase.
 // Preview URLs should be saved separately via SavePreviewLinks before calling this.
 // This function only saves the recording metadata and upload links.
-func SaveRecordingWithLinks(username, filename, timestamp, roomTitle string, tags []string, viewers int, resolution string, framerate int, filesize int64, duration float64, gender, embedURL, thumbnailURL, spriteURL, previewURL string, links map[string]string) error {
+func SaveRecordingWithLinks(username, filename, timestamp, roomTitle string, tags []string, viewers int, resolution string, framerate int, filesize int64, duration float64, gender, embedURL, thumbnailURL, spriteURL, previewURL string, links map[string]string, seekPosterURL ...string) error {
 	client := GetDBClient()
 	if client == nil {
 		return fmt.Errorf("Supabase not configured")
 	}
 
-	// Look up channel ID for foreign key
+	var seekPoster, seekPreview string
+	if len(seekPosterURL) > 0 {
+		seekPoster = seekPosterURL[0]
+	}
+	if len(seekPosterURL) > 1 {
+		seekPreview = seekPosterURL[1]
+	}
+
 	rec := &database.Recording{
-		Username:     username,
-		Filename:     filename,
-		Timestamp:    timestamp,
-		RoomTitle:    roomTitle,
-		Tags:         tags,
-		Viewers:      viewers,
-		Resolution:   resolution,
-		Framerate:    framerate,
-		Filesize:     filesize,
-		Duration:     duration,
-		Gender:       gender,
-		EmbedURL:     embedURL,
-		ThumbnailURL: thumbnailURL,
-		SpriteURL:    spriteURL,
-		PreviewURL:   previewURL,
+		Username:               username,
+		Filename:               filename,
+		Timestamp:              timestamp,
+		RoomTitle:              roomTitle,
+		Tags:                   tags,
+		Viewers:                viewers,
+		Resolution:             resolution,
+		Framerate:              framerate,
+		Filesize:               filesize,
+		Duration:               duration,
+		Gender:                 gender,
+		EmbedURL:               embedURL,
+		ThumbnailURL:           thumbnailURL,
+		SpriteURL:              spriteURL,
+		PreviewURL:             previewURL,
+		SeekStreamingPosterURL: seekPoster,
+		SeekStreamingPreviewURL: seekPreview,
 	}
 	// Skip channel_id lookup — the channels table is shared across instances
 	// and the FK would point to the wrong instance's row.

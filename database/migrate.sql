@@ -85,6 +85,8 @@ CREATE TABLE IF NOT EXISTS recordings (
     sprite_url TEXT,
     embed_url TEXT,
     preview_url TEXT,
+    seekstreaming_poster_url TEXT,
+    seekstreaming_preview_url TEXT,
     instance_id TEXT NOT NULL DEFAULT 'default',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
