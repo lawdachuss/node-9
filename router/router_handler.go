@@ -665,7 +665,10 @@ func Play(c *gin.Context) {
 	c.Header("Content-Length", strconv.FormatInt(contentLength, 10))
 	c.Status(http.StatusPartialContent)
 
-	file.Seek(start, 0)
+	if _, err := file.Seek(start, 0); err != nil {
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
 	io.CopyN(c.Writer, file, contentLength)
 }
 
@@ -675,7 +678,7 @@ func detectVideoMIME(path string) string {
 	case ".mp4":
 		return "video/mp4"
 	case ".ts":
-		return "video/MP2T"
+		return "video/mp2t"
 	case ".mkv":
 		return "video/x-matroska"
 	case ".webm":

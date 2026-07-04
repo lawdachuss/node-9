@@ -921,7 +921,11 @@ func muxVideoAudio(videoPath, audioPath, outputPath string) error {
 	cmd := config.FFmpegCommandContext(ctx, "-y",
 		"-i", videoPath,
 		"-i", audioPath,
+		"-map", "0:v?",
+		"-map", "1:a?",
 		"-c", "copy",
+		"-copyts",
+		"-avoid_negative_ts", "make_zero",
 		"-movflags", "+faststart",
 		outputPath,
 	)
@@ -941,16 +945,15 @@ func normalizeFMP4Timestamps(videoPath string) (string, error) {
 	config.AcquireFFmpeg()
 	defer config.ReleaseFFmpeg()
 
-	// Use -fflags +genpts to regenerate PTS from DTS, and -fflags +igndts
-	// so any lingering broken decode timestamps from LL-HLS fragments do not
-	// cascade into the output PTS.  Combined with -c copy this is a fast remux
-	// that gives every player clean, zero-based timestamps.
+	// Use -fflags +genpts to regenerate PTS from DTS (without +igndts so
+	// B-frame display order is preserved).  A fast stream-copy remux with
+	// -movflags +faststart resets the timeline and moves the moov atom to
+	// the front for immediate playback.
 	err := config.FFmpegCommandContext(ctx,
 		"-y",
-		"-fflags", "+genpts+igndts",
+		"-fflags", "+genpts",
 		"-i", videoPath,
 		"-c", "copy",
-		"-fflags", "+genpts",
 		"-movflags", "+faststart",
 		tmpPath,
 	).Run()
@@ -1487,7 +1490,7 @@ func mergeVideos(inputs []string, outputPath string) error {
 		"-safe", "0",
 		"-i", listFile.Name(),
 		"-c", "copy",
-		"-fflags", "+genpts+igndts",
+		"-fflags", "+genpts",
 		"-movflags", "+faststart",
 		outputPath,
 	).Run()
@@ -1499,10 +1502,9 @@ func mergeVideos(inputs []string, outputPath string) error {
 			tmpPath := outputPath + ".normalized.mp4"
 			if err := config.FFmpegCommandContext(ctx,
 				"-y",
-				"-fflags", "+genpts+igndts",
+				"-fflags", "+genpts",
 				"-i", outputPath,
 				"-c", "copy",
-				"-fflags", "+genpts",
 				"-movflags", "+faststart",
 				tmpPath,
 			).Run(); err != nil {
