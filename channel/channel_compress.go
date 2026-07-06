@@ -45,8 +45,8 @@ var availableEncoders = []videoEncoder{
 	{"QSV", "h264_qsv", []string{"-preset", "medium", "-global_quality", "22"}},
 	// macOS VideoToolbox
 	{"VideoToolbox", "h264_videotoolbox", []string{"-q:v", "55"}},
-	// CPU fallback (CRF 18 = visually lossless)
-	{"CPU", "libx264", []string{"-preset", "medium", "-crf", "18"}},
+	// CPU fallback (veryfast+CRF 20: ~2x faster than medium, still much better quality than raw TS)
+	{"CPU", "libx264", []string{"-preset", "veryfast", "-crf", "20"}},
 }
 
 // detectEncoder finds the best available encoder
