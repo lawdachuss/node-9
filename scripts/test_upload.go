@@ -80,7 +80,7 @@ func main() {
 	// Test VidHide
 	if vidHideAPIKey != "" {
 		log.Println("=== Testing VidHide ===")
-		vh := uploader.NewVidHideUploader(vidHideAPIKey)
+		vh := uploader.NewVidHideUploader(strings.Split(vidHideAPIKey, ","))
 		start := time.Now()
 		url, err := vh.Upload(videoPath)
 		if err != nil {
@@ -95,7 +95,7 @@ func main() {
 	// Test StreamWish
 	if streamWishAPIKey != "" {
 		log.Println("=== Testing StreamWish ===")
-		sw := uploader.NewStreamWishUploader(streamWishAPIKey)
+		sw := uploader.NewStreamWishUploader(strings.Split(streamWishAPIKey, ","))
 		start := time.Now()
 		url, err := sw.Upload(videoPath)
 		if err != nil {

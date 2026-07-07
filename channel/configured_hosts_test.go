@@ -19,14 +19,14 @@ func TestConfiguredUploadHostsIncludesSeekStreaming(t *testing.T) {
 	oldConfig := server.Config
 	defer func() { server.Config = oldConfig }()
 	server.Config = &entity.Config{
-		VoeSXAPIKey:      "key",
-		StreamtapeLogin:  "user",
-		StreamtapeKey:    "pass",
-		MixdropEmail:     "a@b.c",
-		MixdropToken:     "tok",
-		SeekStreamingKey: "ss-key",
-		VidHideAPIKey:    "vh-key",
-		StreamWishAPIKey: "sw-key",
+		VoeSXAPIKey:        "key",
+		StreamtapeLogin:    "user",
+		StreamtapeKey:      "pass",
+		MixdropEmail:       "a@b.c",
+		MixdropToken:       "tok",
+		SeekStreamingKey:   "ss-key",
+		VidHideAPIKeys:     []string{"vh-key"},
+		StreamWishAPIKeys:  []string{"sw-key"},
 	}
 
 	hosts := configuredUploadHosts()

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -14,20 +15,19 @@ const (
 )
 
 type VidHideUploader struct {
-	apiKey string
+	keys   *keyRing
 	client *http.Client
 }
 
-func NewVidHideUploader(apiKey string) *VidHideUploader {
+func NewVidHideUploader(apiKeys []string) *VidHideUploader {
 	return &VidHideUploader{
-		apiKey: apiKey,
+		keys:   newKeyRing(apiKeys),
 		client: &http.Client{
 			Timeout: 120 * time.Minute,
 			Transport: &http.Transport{
 				MaxIdleConns:        100,
 				MaxIdleConnsPerHost: 100,
 				IdleConnTimeout:     90 * time.Second,
-				DisableCompression:  true,
 				DialContext:         (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
 			},
 		},
@@ -57,41 +57,54 @@ func (u *VidHideUploader) Upload(filePath string) (string, error) {
 	return u.UploadWithProgress(filePath, nil)
 }
 
+// Keys returns the current key ring (for testing/debugging).
+func (u *VidHideUploader) Keys() *keyRing { return u.keys }
+
 func (u *VidHideUploader) UploadWithProgress(filePath string, progress ProgressFunc) (string, error) {
-	if u.apiKey == "" {
+	if u.keys.count() == 0 {
 		return "", fmt.Errorf("VidHide API key not configured")
 	}
 
+	// Try each key at most once; on permanent (quota) error, rotate to next key.
+	attempts := u.keys.count()
+	maxRetriesPerKey := 3
 	var lastErr error
 
-	maxAttempts := 3
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		if attempt > 1 {
-			time.Sleep(uploadBackoff(attempt-2, lastErr))
-		}
-
-		downloadLink, err := u.uploadFile(filePath, progress)
-		if err != nil {
-			lastErr = fmt.Errorf("upload file: %w", err)
-			if isUploadRateLimited(err) {
-				time.Sleep(uploadBackoff(attempt, err))
-				lastErr = nil
-				continue
+	for ki := 0; ki < attempts; ki++ {
+		key := u.keys.current()
+		for retry := 1; retry <= maxRetriesPerKey; retry++ {
+			if retry > 1 {
+				time.Sleep(uploadBackoff(retry-2, lastErr))
 			}
-			if attempt < maxAttempts {
-				continue
-			}
-			return "", lastErr
-		}
 
-		return downloadLink, nil
+			downloadLink, err := u.uploadFile(filePath, progress, key)
+			if err != nil {
+				lastErr = fmt.Errorf("upload file: %w", err)
+				if IsPermanentError(err) {
+					u.keys.rotate()
+					break
+				}
+				if isUploadRateLimited(err) {
+					time.Sleep(uploadBackoff(retry, err))
+					lastErr = nil
+					continue
+				}
+				if retry < maxRetriesPerKey {
+					continue
+				}
+				u.keys.rotate()
+				break
+			}
+
+			return downloadLink, nil
+		}
 	}
 
 	return "", lastErr
 }
 
-func (u *VidHideUploader) getUploadServer() (string, error) {
-	url := fmt.Sprintf("%s/upload/server?key=%s", vidHideAPIBase, u.apiKey)
+func (u *VidHideUploader) getUploadServer(apiKey string) (string, error) {
+	url := fmt.Sprintf("%s/upload/server?key=%s", vidHideAPIBase, apiKey)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -115,7 +128,7 @@ func (u *VidHideUploader) getUploadServer() (string, error) {
 	}
 
 	if serverResp.Status != 200 {
-		return "", fmt.Errorf("server status not ok: %s (msg: %s)", serverResp.Msg, serverResp.Msg)
+		return "", fmt.Errorf("server status not ok: %s (result: %s)", serverResp.Msg, serverResp.Result)
 	}
 
 	if serverResp.Result == "" {
@@ -125,14 +138,14 @@ func (u *VidHideUploader) getUploadServer() (string, error) {
 	return serverResp.Result, nil
 }
 
-func (u *VidHideUploader) uploadFile(filePath string, progress ProgressFunc) (string, error) {
-	uploadServer, err := u.getUploadServer()
+func (u *VidHideUploader) uploadFile(filePath string, progress ProgressFunc, apiKey string) (string, error) {
+	uploadServer, err := u.getUploadServer(apiKey)
 	if err != nil {
 		return "", fmt.Errorf("get upload server: %w", err)
 	}
 
 	body, contentLen, contentType, file, err := multipartStreamWithProgress(
-		map[string]string{"key": u.apiKey},
+		map[string]string{"key": apiKey},
 		"file", filePath, "VidHide", progress,
 	)
 	if err != nil {
@@ -159,22 +172,51 @@ func (u *VidHideUploader) uploadFile(filePath string, progress ProgressFunc) (st
 		return "", fmt.Errorf("upload failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
+	rawBody, _ := io.ReadAll(resp.Body)
+
 	var uploadResp vidHideUploadResponse
-	if err := json.NewDecoder(resp.Body).Decode(&uploadResp); err != nil {
-		return "", fmt.Errorf("decode upload response: %w", err)
+	if err := json.Unmarshal(rawBody, &uploadResp); err != nil {
+		return "", fmt.Errorf("decode upload response: %w (body: %s)", err, string(rawBody))
 	}
 
 	if uploadResp.Status != 200 {
-		return "", fmt.Errorf("upload failed: status %d — %s", uploadResp.Status, uploadResp.Msg)
+		return "", fmt.Errorf("upload failed: status %d — %s (body: %s)", uploadResp.Status, uploadResp.Msg, string(rawBody))
 	}
 
 	if len(uploadResp.Files) == 0 {
-		return "", fmt.Errorf("no files in upload response")
+		return "", fmt.Errorf("no files in upload response (body: %s)", string(rawBody))
+	}
+
+	fileStatus := uploadResp.Files[0].Status
+	if fileStatus != "" && !strings.EqualFold(fileStatus, "ok") {
+		errMsg := fmt.Errorf("upload rejected: file status %q (body: %s)", fileStatus, string(rawBody))
+		if strings.Contains(strings.ToLower(fileStatus), "too many") {
+			return "", &permanentError{err: errMsg}
+		}
+		return "", errMsg
 	}
 
 	fileCode := uploadResp.Files[0].FileCode
 	if fileCode == "" {
-		return "", fmt.Errorf("no file code in response")
+		var fallback struct {
+			Files []struct {
+				FileCode string `json:"file_code"`
+			} `json:"files"`
+		}
+		if err := json.Unmarshal(rawBody, &fallback); err == nil && len(fallback.Files) > 0 && fallback.Files[0].FileCode != "" {
+			fileCode = fallback.Files[0].FileCode
+		}
+	}
+	if fileCode == "" {
+		var fallback struct {
+			Result string `json:"result"`
+		}
+		if err := json.Unmarshal(rawBody, &fallback); err == nil && fallback.Result != "" && !strings.HasPrefix(fallback.Result, "http") {
+			fileCode = fallback.Result
+		}
+	}
+	if fileCode == "" {
+		return "", fmt.Errorf("no file code in response (body: %s)", string(rawBody))
 	}
 
 	viewURL := fmt.Sprintf("https://morencius.com/file/%s", fileCode)

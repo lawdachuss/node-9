@@ -3,6 +3,7 @@ package uploader
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -150,6 +151,49 @@ func multipartStreamWithProgress(fields map[string]string, fileField, filePath, 
 	return body, totalLen, contentType, file, nil
 }
 
+// keyRing manages multiple API keys and rotates through them on permanent
+// (quota) errors.  Keys are provided as a slice, typically from a
+// comma-separated config value.
+type keyRing struct {
+	mu    sync.Mutex
+	keys  []string
+	index int
+}
+
+func newKeyRing(keys []string) *keyRing {
+	var cleaned []string
+	for _, k := range keys {
+		k = strings.TrimSpace(k)
+		if k != "" {
+			cleaned = append(cleaned, k)
+		}
+	}
+	return &keyRing{keys: cleaned}
+}
+
+func (kr *keyRing) current() string {
+	kr.mu.Lock()
+	defer kr.mu.Unlock()
+	if len(kr.keys) == 0 {
+		return ""
+	}
+	return kr.keys[kr.index]
+}
+
+func (kr *keyRing) rotate() {
+	kr.mu.Lock()
+	defer kr.mu.Unlock()
+	if len(kr.keys) > 1 {
+		kr.index = (kr.index + 1) % len(kr.keys)
+	}
+}
+
+func (kr *keyRing) count() int {
+	kr.mu.Lock()
+	defer kr.mu.Unlock()
+	return len(kr.keys)
+}
+
 // Logger is the interface for logging upload events.
 // The channel package implements this with ch.Info/ch.Error.
 type Logger interface {
@@ -185,8 +229,6 @@ type uploaderFunc func(string, ProgressFunc) (string, error)
 
 func (m *MultiHostUploader) initHosts() {
 	m.hostInitOnce.Do(func() {
-		// Don't clobber a hosts map that was pre-populated (e.g. by tests that
-		// inject fakes).  Only build the default host set when none was provided.
 		if m.hosts != nil {
 			return
 		}
@@ -204,17 +246,19 @@ func (m *MultiHostUploader) initHosts() {
 		if m.seekstreaming != nil && m.seekstreaming.key != "" {
 			m.hosts["SeekStreaming"] = m.seekstreaming.UploadWithProgress
 		}
-		if m.vidhide != nil && m.vidhide.apiKey != "" {
+		if m.vidhide != nil && m.vidhide.keys.count() > 0 {
 			m.hosts["VidHide"] = m.vidhide.UploadWithProgress
 		}
-		if m.streamwish != nil && m.streamwish.apiKey != "" {
+		if m.streamwish != nil && m.streamwish.keys.count() > 0 {
 			m.hosts["StreamWish"] = m.streamwish.UploadWithProgress
 		}
 	})
 }
 
-// NewMultiHostUploader creates a new multi-host uploader
-func NewMultiHostUploader(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken, seekStreamingKey, vidHideAPIKey, streamWishAPIKey string, log Logger) *MultiHostUploader {
+// NewMultiHostUploader creates a new multi-host uploader.
+// vidHideAPIKeys and streamWishAPIKeys support comma-separated multiple keys
+// for automatic key rotation on daily quota limits.
+func NewMultiHostUploader(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken, seekStreamingKey string, vidHideAPIKeys, streamWishAPIKeys []string, log Logger) *MultiHostUploader {
 	if log == nil {
 		log = &nilLogger{}
 	}
@@ -224,8 +268,8 @@ func NewMultiHostUploader(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEm
 		streamtape:    NewStreamtapeUploader(streamtapeLogin, streamtapeKey),
 		mixdrop:       NewMixdropUploader(mixdropEmail, mixdropToken),
 		seekstreaming: NewSeekStreamingUploader(seekStreamingKey),
-		vidhide:       NewVidHideUploader(vidHideAPIKey),
-		streamwish:    NewStreamWishUploader(streamWishAPIKey),
+		vidhide:       NewVidHideUploader(vidHideAPIKeys),
+		streamwish:    NewStreamWishUploader(streamWishAPIKeys),
 		log:           log,
 	}
 }
@@ -237,12 +281,45 @@ func (m *MultiHostUploader) SetProgressCallback(fn ProgressFunc) {
 
 const defaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
 
+// rateLimitError wraps an error to explicitly mark it as rate-limit related.
+// Uploaders return this when an API response indicates a quota/rate limit
+// even though the HTTP status was 200 OK.
+type rateLimitError struct {
+	err error
+}
+
+func (e *rateLimitError) Error() string { return e.err.Error() }
+func (e *rateLimitError) Unwrap() error { return e.err }
+
+// permanentError wraps an error to signal that retrying is futile
+// (e.g. daily quota exhausted). Outer retry loops should skip this host.
+type permanentError struct {
+	err error
+}
+
+func (e *permanentError) Error() string { return e.err.Error() }
+func (e *permanentError) Unwrap() error { return e.err }
+
+// IsPermanentError returns true if the error (or any wrapped error) is a permanentError.
+// Exported so outer retry loops (channel package) can detect hard failures.
+func IsPermanentError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pe *permanentError
+	return errors.As(err, &pe)
+}
+
 // isUploadRateLimited returns true if the error indicates a rate-limit hit
 // (429 Too Many Requests or similar). Uses a different name than imgbb.go's
 // isRateLimitError to avoid redeclaration.
 func isUploadRateLimited(err error) bool {
 	if err == nil {
 		return false
+	}
+	var rle *rateLimitError
+	if errors.As(err, &rle) {
+		return true
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "rate limit") ||

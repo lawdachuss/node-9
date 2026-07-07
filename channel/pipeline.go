@@ -197,8 +197,8 @@ func (p *Pipeline) stageUploadVideos(ch *Channel) error {
 		cfg.MixdropEmail,
 		cfg.MixdropToken,
 		cfg.SeekStreamingKey,
-		cfg.VidHideAPIKey,
-		cfg.StreamWishAPIKey,
+		cfg.VidHideAPIKeys,
+		cfg.StreamWishAPIKeys,
 		ch,
 	)
 
@@ -357,8 +357,16 @@ func (p *Pipeline) stageUploadVideos(ch *Channel) error {
 			break
 		}
 
+		// Exclude hosts with permanent errors (daily quota) from retries
+		skipHosts := completedHosts
+		for _, r := range results {
+			if uploader.IsPermanentError(r.Error) {
+				skipHosts = append(skipHosts, r.Host)
+			}
+		}
+
 		if attempt < maxChannelUploadAttempts {
-			failedHosts := failedHostNames(results, completedHosts)
+			failedHosts := failedHostNames(results, skipHosts)
 			hostsToTry = failedHosts
 			if len(hostsToTry) > 0 {
 				ch.Warn("upload: %d hosts still pending — retrying in %ds (attempt %d/%d)",

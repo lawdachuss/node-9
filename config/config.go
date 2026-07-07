@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 
 	"time"
@@ -14,6 +15,19 @@ import (
 	"github.com/teacat/chaturbate-dvr/entity"
 	"github.com/urfave/cli/v2"
 )
+
+// splitCS splits a comma-separated string, trimming whitespace and
+// discarding empty entries. Used for multi-key config values.
+func splitCS(s string) []string {
+	var out []string
+	for _, v := range strings.Split(s, ",") {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
 
 var (
 	ffmpegPath       string
@@ -230,8 +244,8 @@ func New(c *cli.Context) (*entity.Config, error) {
 		MixdropEmail:            c.String("mixdrop-email"),
 		MixdropToken:            c.String("mixdrop-token"),
 		SeekStreamingKey:        c.String("seekstreaming-key"),
-		VidHideAPIKey:           c.String("vidhide-api-key"),
-		StreamWishAPIKey:        c.String("streamwish-api-key"),
+		VidHideAPIKeys:          splitCS(c.String("vidhide-api-key")),
+		StreamWishAPIKeys:       splitCS(c.String("streamwish-api-key")),
 
 		SupabaseURL:    c.String("supabase-url"),
 		SupabaseAPIKey: c.String("supabase-api-key"),

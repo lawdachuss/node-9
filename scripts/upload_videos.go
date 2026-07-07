@@ -124,8 +124,8 @@ func main() {
 			server.Config.MixdropEmail != "", mask(server.Config.MixdropToken),
 			server.Config.StreamtapeLogin != "", mask(server.Config.StreamtapeKey),
 			mask(server.Config.SeekStreamingKey),
-			mask(server.Config.VidHideAPIKey),
-			mask(server.Config.StreamWishAPIKey),
+			mask(strings.Join(server.Config.VidHideAPIKeys, ",")),
+			mask(strings.Join(server.Config.StreamWishAPIKeys, ",")),
 		)
 	}
 
@@ -196,8 +196,8 @@ func main() {
 			server.Config.MixdropEmail,
 			server.Config.MixdropToken,
 			server.Config.SeekStreamingKey,
-			server.Config.VidHideAPIKey,
-			server.Config.StreamWishAPIKey,
+			server.Config.VidHideAPIKeys,
+			server.Config.StreamWishAPIKeys,
 			&scriptLogger{},
 		)
 

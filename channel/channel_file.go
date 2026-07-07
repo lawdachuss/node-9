@@ -1116,8 +1116,8 @@ func configuredUploadHosts() []string {
 		cfg.MixdropEmail,
 		cfg.MixdropToken,
 		cfg.SeekStreamingKey,
-		cfg.VidHideAPIKey,
-		cfg.StreamWishAPIKey,
+		cfg.VidHideAPIKeys,
+		cfg.StreamWishAPIKeys,
 		nil,
 	)
 	return upl.AvailableHosts()
@@ -1183,8 +1183,8 @@ func UploadOrphanedFile(filePath, thumbURL, spriteURL, previewURL string) bool {
 		cfg.MixdropEmail,
 		cfg.MixdropToken,
 		cfg.SeekStreamingKey,
-		cfg.VidHideAPIKey,
-		cfg.StreamWishAPIKey,
+		cfg.VidHideAPIKeys,
+		cfg.StreamWishAPIKeys,
 		nil, // no logger for orphan recovery
 	)
 
@@ -1247,8 +1247,16 @@ func UploadOrphanedFile(filePath, thumbURL, spriteURL, previewURL string) bool {
 			break
 		}
 
+		// Exclude hosts with permanent errors (daily quota) from retries
+		skipHosts := completedHosts
+		for _, r := range results {
+			if uploader.IsPermanentError(r.Error) {
+				skipHosts = append(skipHosts, r.Host)
+			}
+		}
+
 		if attempt < maxUploadAttempts {
-			failedHosts := failedHostNames(results, completedHosts)
+			failedHosts := failedHostNames(results, skipHosts)
 			hostsToTry = failedHosts
 			if len(hostsToTry) > 0 {
 				recoveryLogf(filename, "%d hosts still pending — retrying in %s...", len(hostsToTry), retryDelay)

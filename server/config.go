@@ -46,8 +46,8 @@ func SaveSettings() error {
 		MixdropEmail:     Config.MixdropEmail,
 		MixdropToken:     Config.MixdropToken,
 		SeekStreamingKey: Config.SeekStreamingKey,
-		VidHideAPIKey:    Config.VidHideAPIKey,
-		StreamWishAPIKey: Config.StreamWishAPIKey,
+		VidHideAPIKey:    strings.Join(Config.VidHideAPIKeys, ","),
+		StreamWishAPIKey: strings.Join(Config.StreamWishAPIKeys, ","),
 		StripchatPDKey:   Config.StripchatPDKey,
 	}
 	ConfigMu.RUnlock()
@@ -110,10 +110,10 @@ func LoadSettings() error {
 		Config.SeekStreamingKey = s.SeekStreamingKey
 	}
 	if s.VidHideAPIKey != "" {
-		Config.VidHideAPIKey = s.VidHideAPIKey
+		Config.VidHideAPIKeys = splitCS(s.VidHideAPIKey)
 	}
 	if s.StreamWishAPIKey != "" {
-		Config.StreamWishAPIKey = s.StreamWishAPIKey
+		Config.StreamWishAPIKeys = splitCS(s.StreamWishAPIKey)
 	}
 	if s.StripchatPDKey != "" {
 		Config.StripchatPDKey = s.StripchatPDKey
@@ -134,6 +134,19 @@ func LoadSettings() error {
 	ConfigMu.Unlock()
 
 	return nil
+}
+
+// splitCS splits a comma-separated string, trimming whitespace and
+// discarding empty entries.
+func splitCS(s string) []string {
+	var out []string
+	for _, v := range strings.Split(s, ",") {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func extractCookie(cookieStr, name string) string {
@@ -168,10 +181,10 @@ func UpdateUploaderCredentials(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixd
 		Config.SeekStreamingKey = seekStreamingKey
 	}
 	if vidHideAPIKey != "" {
-		Config.VidHideAPIKey = vidHideAPIKey
+		Config.VidHideAPIKeys = splitCS(vidHideAPIKey)
 	}
 	if streamWishAPIKey != "" {
-		Config.StreamWishAPIKey = streamWishAPIKey
+		Config.StreamWishAPIKeys = splitCS(streamWishAPIKey)
 	}
 	ConfigMu.Unlock()
 }

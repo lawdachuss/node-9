@@ -97,8 +97,8 @@ func (ch *Channel) uploadFile(filePath string, thumbURL, spriteURL, previewURL s
 		cfg.MixdropEmail,
 		cfg.MixdropToken,
 		cfg.SeekStreamingKey,
-		cfg.VidHideAPIKey,
-		cfg.StreamWishAPIKey,
+		cfg.VidHideAPIKeys,
+		cfg.StreamWishAPIKeys,
 		ch, // Channel implements uploader.Logger
 	)
 
@@ -151,9 +151,17 @@ func (ch *Channel) uploadFile(filePath string, thumbURL, spriteURL, previewURL s
 			break
 		}
 
+		// Exclude hosts with permanent errors (daily quota) from retries
+		skipHosts := completedHosts
+		for _, r := range results {
+			if uploader.IsPermanentError(r.Error) {
+				skipHosts = append(skipHosts, r.Host)
+			}
+		}
+
 		if attempt < maxChannelUploadAttempts {
 			// On retry, only retry hosts that haven't succeeded yet
-			failedHosts := failedHostNames(results, completedHosts)
+			failedHosts := failedHostNames(results, skipHosts)
 			hostsToTry = failedHosts
 			if len(hostsToTry) > 0 {
 				ch.Warn("upload: %d hosts still pending — retrying in %ds (attempt %d/%d)",
