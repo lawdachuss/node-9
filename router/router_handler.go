@@ -946,9 +946,9 @@ func embedURLForHostLink(host, link string) string {
 			return "https://morencius.com/embed/" + code
 		}
 	}
-	if strings.Contains(normalizedHost, "streamwish") || strings.Contains(normalizedLink, "hanerix.com/") {
+	if strings.Contains(normalizedHost, "streamwish") || strings.Contains(normalizedLink, "hanerix.com/") || strings.Contains(normalizedLink, "masukestin.com/") {
 		if code := extractFileCode(link); code != "" {
-			return "https://hanerix.com/e/" + code
+			return "https://masukestin.com/e/" + code
 		}
 	}
 	return ""
@@ -985,9 +985,9 @@ func videoURLForHostLink(host, link string) string {
 			return "https://morencius.com/embed/" + code
 		}
 		return link
-	case strings.Contains(normalizedHost, "streamwish") || strings.Contains(normalizedLink, "hanerix.com/"):
+	case strings.Contains(normalizedHost, "streamwish") || strings.Contains(normalizedLink, "hanerix.com/") || strings.Contains(normalizedLink, "masukestin.com/"):
 		if code := extractFileCode(link); code != "" {
-			return "https://hanerix.com/e/" + code
+			return "https://masukestin.com/e/" + code
 		}
 		return link
 	default:

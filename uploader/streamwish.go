@@ -220,6 +220,6 @@ func (u *StreamWishUploader) uploadFile(filePath string, progress ProgressFunc, 
 		return "", fmt.Errorf("no file code in response (body: %s)", string(rawBody))
 	}
 
-	viewURL := fmt.Sprintf("https://hanerix.com/%s", fileCode)
+	viewURL := fmt.Sprintf("https://masukestin.com/%s", fileCode)
 	return viewURL, nil
 }

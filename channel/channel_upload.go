@@ -36,7 +36,7 @@ func embedURLFromLink(host, link string) string {
 	case "StreamWish":
 		code := link[strings.LastIndex(link, "/")+1:]
 		if code != "" {
-			return "https://hanerix.com/e/" + code
+			return "https://masukestin.com/e/" + code
 		}
 	}
 	return ""

@@ -216,6 +216,6 @@ func (u *VidHideUploader) uploadFile(filePath string, progress ProgressFunc, api
 		return "", fmt.Errorf("no file code in response (body: %s)", string(rawBody))
 	}
 
-	viewURL := fmt.Sprintf("https://morencius.com/file/%s", fileCode)
+	viewURL := fmt.Sprintf("https://morencius.com/embed/%s", fileCode)
 	return viewURL, nil
 }
