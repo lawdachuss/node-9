@@ -542,8 +542,8 @@ jobs:
             Write-Host "Falling back to old COOKIES from secret - rewriting .env"
             if (-not [string]::IsNullOrWhiteSpace($env:MINI_ENV)) {
               [System.IO.File]::WriteAllText($envPath, $env:MINI_ENV, (New-Object System.Text.UTF8Encoding($false)))
+              Write-Host "[OK] Restored old COOKIES from secret - DVR will continue with existing cookies"
             }
-            exit 1
           }
           Write-Host "[OK] Grabber built"
 
@@ -579,8 +579,8 @@ jobs:
             Write-Warning "COOKIES not found in .env after grabber - falling back"
             if (-not [string]::IsNullOrWhiteSpace($env:MINI_ENV)) {
               [System.IO.File]::WriteAllText($envPath, $env:MINI_ENV, (New-Object System.Text.UTF8Encoding($false)))
+              Write-Host "[OK] Restored old COOKIES from secret"
             }
-            exit 1
           }
 
       - name: Write .env + install deps + create scheduled tasks
@@ -1205,13 +1205,13 @@ jobs:
           # ====== DUMP WORKFLOW SETUP LOGS ======
           Write-Host "Saving workflow setup logs for /api/logs..."
           $setupLog = "$repoDir\workflow-setup.log"
-          try {
-            gh run view $env:GITHUB_RUN_ID --log --repo $env:GITHUB_REPOSITORY 2>$null | ForEach-Object {
-              $_ -replace '\x1b\[[0-9;]*m', '' -replace '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\s+', ''
-            } | Set-Content -Path $setupLog -Force
+          cmd /c "gh run view $env:GITHUB_RUN_ID --log --repo $env:GITHUB_REPOSITORY 2>nul" 2>$null | ForEach-Object {
+            $_ -replace '\x1b\[[0-9;]*m', '' -replace '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\s+', ''
+          } | Set-Content -Path $setupLog -Force
+          if ((Get-Item $setupLog -ErrorAction SilentlyContinue).Length -gt 0) {
             Write-Host "[OK] Workflow setup logs saved ($((Get-Item $setupLog).Length) bytes)"
-          } catch {
-            Write-Host "[WARN] Could not dump workflow logs: $_"
+          } else {
+            Write-Host "[WARN] Could not dump workflow logs (run still in progress)"
           }
 
           # ====== KEEP-ALIVE LOOP ======
