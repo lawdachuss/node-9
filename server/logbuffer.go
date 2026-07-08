@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"os"
 	"sync"
 	"time"
 )
@@ -79,6 +80,24 @@ func (b *LogBuffer) Clear() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.lines = b.lines[:0]
+}
+
+func (b *LogBuffer) WriteString(s string) {
+	b.Write([]byte(s))
+}
+
+// LoadWorkflowLogs reads a workflow setup log file (written by the GitHub Actions
+// workflow before the keep-alive loop) and injects its lines into the log buffer
+// so they appear in /api/logs alongside runtime logs.
+func LoadWorkflowLogs(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	buf := GetLogBuffer()
+	buf.WriteString("━━━ GitHub Actions workflow setup logs ━━━\n")
+	buf.Write(data)
+	buf.WriteString("━━━ End of workflow setup logs ━━━\n")
 }
 
 func (e logEntry) String() string {

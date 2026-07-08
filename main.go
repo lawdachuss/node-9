@@ -374,6 +374,8 @@ func start(c *cli.Context) error {
 	go pipeReader(stdoutR, logBuf, origStdout)
 	go pipeReader(stderrR, logBuf, origStderr)
 
+	server.LoadWorkflowLogs("workflow-setup.log")
+
 	fmt.Println(logo)
 
 	var err error
