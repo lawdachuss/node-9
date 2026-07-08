@@ -1247,10 +1247,10 @@ func UploadOrphanedFile(filePath, thumbURL, spriteURL, previewURL string) bool {
 			break
 		}
 
-		// Exclude hosts with permanent errors (daily quota) from retries
+		// Exclude hosts with permanent or proxy errors from retries
 		skipHosts := completedHosts
 		for _, r := range results {
-			if uploader.IsPermanentError(r.Error) {
+			if uploader.IsPermanentError(r.Error) || uploader.IsProxyError(r.Error) {
 				skipHosts = append(skipHosts, r.Host)
 			}
 		}

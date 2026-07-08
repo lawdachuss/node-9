@@ -346,6 +346,23 @@ func IsPermanentError(err error) bool {
 	return errors.As(err, &pe)
 }
 
+// IsProxyError returns true if the error indicates a proxy connectivity issue
+// (connection refused, SOCKS failure, closed network). Outer retry loops should
+// skip retrying hosts that fail with proxy errors since the proxy is likely down.
+func IsProxyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "actively refused") ||
+		strings.Contains(errStr, "SOCKS") ||
+		strings.Contains(errStr, "socks") ||
+		strings.Contains(errStr, "use of closed network connection") ||
+		(strings.Contains(errStr, "wsasend") &&
+			strings.Contains(errStr, "forcibly closed"))
+}
+
 // isUploadRateLimited returns true if the error indicates a rate-limit hit
 // (429 Too Many Requests or similar). Uses a different name than imgbb.go's
 // isRateLimitError to avoid redeclaration.
