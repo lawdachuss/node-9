@@ -203,7 +203,7 @@ jobs:
                 $t = [Diagnostics.Stopwatch]::StartNew()
                 $out = go build -o $name $pkg 2>&1
                 $t.Stop(); $exit = $LASTEXITCODE
-                if ($exit -eq 0) { Write-Host "[BUILD] $name: $([math]::Round($t.Elapsed.TotalSeconds,1))s"; $ok = $true; break }
+                if ($exit -eq 0) { Write-Host "[BUILD] $($name): $([math]::Round($t.Elapsed.TotalSeconds,1))s"; $ok = $true; break }
                 Write-Host "[BUILD] $name attempt $($attempt+1) failed (exit $exit), retrying..."
                 Start-Sleep -Seconds 2
               }
