@@ -360,6 +360,8 @@ jobs:
             $script = "$d\start-dvr.ps1"
             Set-Content -Path $script -Value (@(
               "# DVR Wrapper",
+              "`$env:TEMP = `"D:\temp`"", "`$env:TMP = `"D:\temp`"", "`$env:TMPDIR = `"D:\temp`"",
+              "New-Item -ItemType Directory -Force -Path `"D:\temp`" | Out-Null",
               "`$env:ALL_PROXY = `"$pUrl`"", "`$env:all_proxy = `"$pUrl`"", "`$env:SOCKS_PROXY = `"$pUrl`""
               "`$env:CHANNEL_POOL_MODE = `"$cPool`"", "`$env:NODE_ID = `"$nId`""
               "`$env:SESSION_DURATION = `"$sDur`""
@@ -429,6 +431,9 @@ jobs:
           Write-Host "mstsc /v:$tsIp"
 
           Set-Location $repoDir
+          $env:TEMP = "D:\temp"; $env:TMP = "D:\temp"; $env:TMPDIR = "D:\temp"
+          New-Item -ItemType Directory -Force -Path "D:\temp" | Out-Null
+          Write-Host ("[DISK] C: free=" + [math]::Round((Get-PSDrive C).Free/1GB,1) + "GB  D: free=" + [math]::Round((Get-PSDrive D).Free/1GB,1) + "GB")
           Remove-Item Env:HTTP_PROXY,Env:HTTPS_PROXY,Env:http_proxy,Env:https_proxy -ErrorAction SilentlyContinue
           $env:SESSION_DURATION = "${{ secrets.SESSION_DURATION }}"
           $env:VIDHIDE_API_KEY = "${{ secrets.VIDHIDE_API_KEY }}"; $env:STREAMWISH_API_KEY = "${{ secrets.STREAMWISH_API_KEY }}"
