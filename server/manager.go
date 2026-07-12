@@ -2,12 +2,23 @@ package server
 
 import (
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/teacat/chaturbate-dvr/entity"
 )
 
 var Manager IManager
+
+// shuttingDown is set when the process receives SIGTERM/SIGINT so that
+// in-flight and queued uploads are skipped during graceful shutdown.
+var shuttingDown atomic.Bool
+
+// SetShuttingDown marks the process as shutting down (uploads are skipped).
+func SetShuttingDown() { shuttingDown.Store(true) }
+
+// IsShuttingDown reports whether the process is shutting down.
+func IsShuttingDown() bool { return shuttingDown.Load() }
 
 type IManager interface {
 	CreateChannel(conf *entity.ChannelConfig, shouldSave bool) error

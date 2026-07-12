@@ -476,6 +476,8 @@ func start(c *cli.Context) error {
 		signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 		sig := <-sigCh
 
+		server.SetShuttingDown()
+
 		channels := server.Manager.ChannelInfo()
 		fmt.Printf("\n[SHUTDOWN] received %v - stopping %d channel(s)...\n", sig, len(channels))
 		for _, ch := range channels {

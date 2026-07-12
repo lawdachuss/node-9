@@ -736,6 +736,12 @@ func (pq *PipelineQueue) processPipeline(p *Pipeline) {
 
 	// ── Stage: Thumbnail + Video Upload (parallel) ───────────────────────
 	if p.CurrentStage == StageThumbnailUpload {
+		// On graceful shutdown (workflow cancel/timeout) skip all uploads and
+		// leave the muxed file on disk — do not push to any host.
+		if server.IsShuttingDown() {
+			ch.Info("pipeline: skipping upload for %s (shutting down)", filename)
+			p.advanceTo(StageDone)
+		} else {
 		ch.Info("pipeline: stage thumbnail_upload for %s", filename)
 		ch.SetUploadProgress(filename, "generating thumbnails and uploading to hosts", 5, 0, 0, 0, 0, "", nil)
 
@@ -805,6 +811,7 @@ func (pq *PipelineQueue) processPipeline(p *Pipeline) {
 			p.Failed = true
 			p.LastError = statErr.Error()
 			return
+		}
 		}
 	}
 
