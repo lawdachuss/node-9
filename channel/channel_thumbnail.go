@@ -303,8 +303,12 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 			for i := 0; i < spriteFrames; i++ {
 				tileIns = append(tileIns, fmt.Sprintf("[s%d]", i))
 			}
-			fp = append(fp, fmt.Sprintf("%s%s", strings.Join(tileIns, ""), fmt.Sprintf("tile=%dx%d", spriteCols, spriteRows)))
-			args = append(args, "-filter_complex", strings.Join(fp, ";"), "-frames:v", "1", "-q:v", "5", spriteJPG)
+			// concat merges the 16 single-frame streams into one 16-frame
+			// stream; tile then arranges those frames into the 4×4 grid.
+			// (tile takes a single input, so concat is required first.)
+			fp = append(fp, fmt.Sprintf("%s%s", strings.Join(tileIns, ""),
+				fmt.Sprintf("concat=n=%d:v=1:a=0,tile=%dx%d", spriteFrames, spriteCols, spriteRows)))
+			args = append(args, "-filter_complex", strings.Join(fp, ";"), "-frames:v", "1", "-update", "1", "-q:v", "5", spriteJPG)
 			stderr, err = runFFmpeg(spriteCtx, args...)
 		} else {
 			// Duration unknown: fall back to sequential fps extraction.

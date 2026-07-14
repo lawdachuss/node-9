@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -165,7 +166,17 @@ func (u *VoeSXUploader) uploadFile(filePath string, progress ProgressFunc) (stri
 	}
 
 	if !uploadResp.Success {
-		return "", fmt.Errorf("upload failed: %s", uploadResp.Message)
+		msg := uploadResp.Message
+		// "Maximum storage space of the account used up." means the VOE account
+		// tied to this key is full — retrying the same key is futile.  Mark it
+		// permanent so the uploader skips VOE.sx immediately instead of burning
+		// 3 attempts per file on a dead key.
+		lower := strings.ToLower(msg)
+		if isQuotaExceeded(msg) || strings.Contains(lower, "storage space") ||
+			strings.Contains(lower, "maximum storage") || strings.Contains(lower, "account used up") {
+			return "", &permanentError{err: fmt.Errorf("upload failed: %s", msg)}
+		}
+		return "", fmt.Errorf("upload failed: %s", msg)
 	}
 
 	if uploadResp.File.FileCode == "" {

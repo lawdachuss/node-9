@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
 const (
-	gofileAPIBase = "https://api.gofile.io"
+	gofileAPIBase   = "https://api.gofile.io"
+	gofileUploadURL = "https://upload.gofile.io/uploadfile"
 )
 
 // GoFileUploader handles uploading files to GoFile.io
@@ -30,14 +32,14 @@ func NewGoFileUploader() *GoFileUploader {
 	}
 }
 
-type getServerResponse struct {
-	Status string `json:"status"`
-	Data   struct {
-		Servers []struct {
-			Name string `json:"name"`
-			Zone string `json:"zone"`
-		} `json:"servers"`
-	} `json:"data"`
+// gofileToken returns the optional GoFile API token (Bearer). When empty,
+// GoFile creates an anonymous guest account per upload (legacy behaviour).
+// Set GOFILE_API_TOKEN in the environment to authenticate with a real account
+// and skip guest-account creation — this avoids the "error-createGuestAccount"
+// 500s GoFile returns when its guest service is overloaded or rate-limiting an
+// IP. A free GoFile account's API token is sufficient for uploads.
+func gofileToken() string {
+	return strings.TrimSpace(os.Getenv("GOFILE_API_TOKEN"))
 }
 
 type uploadResponse struct {
@@ -61,24 +63,16 @@ func (u *GoFileUploader) Upload(filePath string) (string, error) {
 func (u *GoFileUploader) UploadWithProgress(filePath string, progress ProgressFunc) (string, error) {
 	var lastErr error
 
-	maxAttempts := 3
+	// GoFile's guest-account service intermittently returns 500
+	// "error-createGuestAccount".  Retry a few times with backoff; if a
+	// GOFILE_API_TOKEN is configured we skip guest creation and won't hit it.
+	maxAttempts := 5
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		if attempt > 1 {
 			time.Sleep(uploadBackoff(attempt-2, lastErr))
 		}
 
-		// Step 1: Get the best server
-		server, err := u.getBestServer()
-		if err != nil {
-			lastErr = fmt.Errorf("get best server: %w", err)
-			if attempt < maxAttempts {
-				continue
-			}
-			return "", lastErr
-		}
-
-		// Step 2: Upload the file
-		url, err := u.uploadFile(server, filePath, progress)
+		url, err := u.uploadFile(filePath, progress)
 		if err != nil {
 			lastErr = fmt.Errorf("upload file: %w", err)
 			if isUploadRateLimited(err) {
@@ -100,41 +94,7 @@ func (u *GoFileUploader) UploadWithProgress(filePath string, progress ProgressFu
 	return "", lastErr
 }
 
-func (u *GoFileUploader) getBestServer() (string, error) {
-	req, err := http.NewRequest("GET", gofileAPIBase+"/servers", nil)
-	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("User-Agent", defaultUserAgent)
-	resp, err := u.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("request servers: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	var serverResp getServerResponse
-	if err := json.NewDecoder(resp.Body).Decode(&serverResp); err != nil {
-		return "", fmt.Errorf("decode response: %w", err)
-	}
-
-	if serverResp.Status != "ok" {
-		return "", fmt.Errorf("server status not ok: %s", serverResp.Status)
-	}
-
-	if len(serverResp.Data.Servers) == 0 {
-		return "", fmt.Errorf("no servers available")
-	}
-
-	// Return the first server (you could add logic to pick based on zone)
-	return serverResp.Data.Servers[0].Name, nil
-}
-
-func (u *GoFileUploader) uploadFile(server, filePath string, progress ProgressFunc) (string, error) {
+func (u *GoFileUploader) uploadFile(filePath string, progress ProgressFunc) (string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return "", fmt.Errorf("open file: %w", err)
@@ -145,10 +105,23 @@ func (u *GoFileUploader) uploadFile(server, filePath string, progress ProgressFu
 	pipeReader, pipeWriter := io.Pipe()
 	writer := multipart.NewWriter(pipeWriter)
 
+	token := gofileToken()
+
 	// Start writing in a goroutine
 	errChan := make(chan error, 1)
 	go func() {
 		defer pipeWriter.Close()
+
+		// When authenticated, send the token as a form field (GoFile accepts
+		// both the Bearer header and/or this field).  Must be written before
+		// the file part.
+		if token != "" {
+			if err := writer.WriteField("token", token); err != nil {
+				errChan <- fmt.Errorf("write token field: %w", err)
+				writer.Close()
+				return
+			}
+		}
 
 		part, err := writer.CreateFormFile("file", filepath.Base(filePath))
 		if err != nil {
@@ -182,14 +155,16 @@ func (u *GoFileUploader) uploadFile(server, filePath string, progress ProgressFu
 		errChan <- nil
 	}()
 
-	uploadURL := fmt.Sprintf("https://%s.gofile.io/contents/uploadfile", server)
-	req, err := http.NewRequest("POST", uploadURL, pipeReader)
+	req, err := http.NewRequest("POST", gofileUploadURL, pipeReader)
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
 
 	req.Header.Set("User-Agent", defaultUserAgent)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 
 	resp, err := u.client.Do(req)
 	if err != nil {
@@ -215,18 +190,18 @@ func (u *GoFileUploader) uploadFile(server, filePath string, progress ProgressFu
 		return "", fmt.Errorf("timeout waiting for file copy to complete")
 	}
 
+	bodyBytes, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("upload failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	var uploadResp uploadResponse
-	if err := json.NewDecoder(resp.Body).Decode(&uploadResp); err != nil {
-		return "", fmt.Errorf("decode upload response: %w", err)
+	if err := json.Unmarshal(bodyBytes, &uploadResp); err != nil {
+		return "", fmt.Errorf("decode upload response: %w (body: %s)", err, string(bodyBytes))
 	}
 
 	if uploadResp.Status != "ok" {
-		return "", fmt.Errorf("upload status not ok: %s", uploadResp.Status)
+		return "", fmt.Errorf("upload status not ok: %s (body: %s)", uploadResp.Status, string(bodyBytes))
 	}
 
 	return uploadResp.Data.DownloadPage, nil
