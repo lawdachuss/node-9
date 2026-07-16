@@ -39,8 +39,12 @@ func TestSegmentsForChannelExcludesOtherChannels(t *testing.T) {
 	mustWrite(t, filepath.Join(dirA, "alice_2025-01-01_12-30-00.mp4"), 1024)
 	// A stray from Bob that was misrouted into Alice's directory.
 	mustWrite(t, filepath.Join(dirA, "bob_2025-01-01_13-00-00.mp4"), 1024)
-	// A corrupt/truncated file whose owner cannot be determined.
-	mustWrite(t, filepath.Join(dirA, "partial-download.tmp"), 1024)
+	// A file whose owner cannot be determined (no date separator) — it must
+	// be isolated to _unknown, never merged into Alice's set.
+	mustWrite(t, filepath.Join(dirA, "partial-download_2025.mp4"), 1024)
+	// A non-MP4 file (e.g. a .mkv produced by compression, or junk) must NOT
+	// be treated as a mergeable segment and must be left alone.
+	mustWrite(t, filepath.Join(dirA, "junk.mkv"), 1024)
 
 	segs := segmentsForChannel("alice")
 
@@ -60,11 +64,15 @@ func TestSegmentsForChannelExcludesOtherChannels(t *testing.T) {
 		t.Errorf("bob's stray segment was not relocated to bob's pending dir: %v", err)
 	}
 	// The unknown file should be isolated in _unknown, not left in alice's dir.
-	if _, err := os.Stat(filepath.Join(dirA, "partial-download.tmp")); err == nil {
+	if _, err := os.Stat(filepath.Join(dirA, "partial-download_2025.mp4")); err == nil {
 		t.Errorf("unknown/corrupt segment was wrongly kept in alice's pending dir")
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".pending", "_unknown", "partial-download.tmp")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, ".pending", "_unknown", "partial-download_2025.mp4")); err != nil {
 		t.Errorf("unknown/corrupt segment was not isolated to _unknown bucket: %v", err)
+	}
+	// The non-MP4 junk file must not be treated as a segment and must remain.
+	if _, err := os.Stat(filepath.Join(dirA, "junk.mkv")); err != nil {
+		t.Errorf("non-MP4 file was wrongly removed/relocated: %v", err)
 	}
 }
 

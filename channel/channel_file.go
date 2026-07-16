@@ -702,6 +702,12 @@ func closeTrackedFile(file *os.File) (string, os.FileInfo, error) {
 // moveToPendingDir moves a file into the .pending/<username>/ directory.
 // Acquires pendingDirMu so it cannot race with handleMinDurationAndMerge,
 // which may call deletePendingSegments concurrently.
+//
+// The destination name is collision-safe: if a file with the same basename
+// already exists in the target pending dir (e.g. a stray being relocated back
+// to its owner, or a duplicate from a retry), the moved file is given a unique
+// " (n)" suffix rather than silently failing the rename and leaving the stray
+// stranded in the wrong channel's directory forever.
 func moveToPendingDir(filePath, username string) error {
 	mu := pendingMu(username)
 	mu.Lock()
@@ -711,55 +717,8 @@ func moveToPendingDir(filePath, username string) error {
 	if err := os.MkdirAll(pendingDir, 0777); err != nil {
 		return fmt.Errorf("create pending dir: %w", err)
 	}
-	dest := filepath.Join(pendingDir, filepath.Base(filePath))
+	dest := uniqueDestPath(filepath.Join(pendingDir, filepath.Base(filePath)))
 	return os.Rename(filePath, dest)
-}
-
-// maybeDeferToPending checks whether min-duration is enabled and, if so,
-// whether filePath is short enough to be deferred.  When the file should be
-// deferred (or on probe failure — we'd rather be safe) it is moved into
-// .pending/<user>/ and the function returns true so callers skip upload.
-func MaybeDeferToPending(filePath string) bool {
-	minDur := 0
-	if server.Config != nil {
-		minDur = server.Config.MinDurationBeforeUpload
-	}
-	if minDur <= 0 {
-		return false // feature disabled — upload directly
-	}
-
-	username := extractUsernameFromFilename(filepath.Base(filePath))
-	if username == "" {
-		// Can't attribute the file to a channel. We still must honour the
-		// minimum-duration rule, so probe it directly. Short/unknown files are
-		// isolated in a dedicated pending dir (never merged with any channel
-		// and never auto-uploaded) instead of being uploaded or contaminating
-		// another channel's pending directory.
-		if minDur > 0 {
-			if d, e := VideoDurationSeconds(filePath); e != nil || d < float64(minDur) {
-				log.Printf("[cleanup] min-duration: unowned %s (dur=%.1f, err=%v) — isolating, no upload", filepath.Base(filePath), d, e)
-				_ = moveToPendingDir(filePath, "_unknown")
-				return true
-			}
-		}
-		return false // long enough (or min-duration disabled) — upload directly
-	}
-
-	dur, err := VideoDurationSeconds(filePath)
-	if err != nil {
-		log.Printf("[cleanup] min-duration: could not probe %s (%v) — deferring to pending", filepath.Base(filePath), err)
-		_ = moveToPendingDir(filePath, username)
-		return true
-	}
-
-	if dur < float64(minDur) {
-		log.Printf("[cleanup] min-duration: %s = %.1fs (< %ds) — deferring to pending",
-			filepath.Base(filePath), dur, minDur)
-		_ = moveToPendingDir(filePath, username)
-		return true
-	}
-
-	return false // meets threshold — upload normally
 }
 
 // DeleteSidecarFiles removes preview sidecar files associated with a video path.
@@ -1426,8 +1385,10 @@ func segmentsForChannel(username string) []string {
 }
 
 // collectPendingSegmentsInDir returns sorted absolute paths of actual video
-// files in dir, filtering out sidecar files, zero-byte files, and
-// merged-*.mp4 files that were already consolidated.
+// files in dir, filtering out sidecar files, zero-byte files, non-MP4
+// containers (e.g. .mkv produced by compression — these must never be fed
+// back into the MP4 merge path, or they would be double-merged and corrupt
+// the output), and merged-*.mp4 files that were already consolidated.
 func collectPendingSegmentsInDir(dir string) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -1445,6 +1406,11 @@ func collectPendingSegmentsInDir(dir string) []string {
 		}
 		// Skip merged-* files — they were already consolidated.
 		if strings.HasPrefix(name, "merged-") {
+			continue
+		}
+		// Only MP4 segments participate in the merge path. Compression
+		// emits .mkv and must not be re-fed into the MP4 concat.
+		if strings.ToLower(filepath.Ext(name)) != ".mp4" {
 			continue
 		}
 		// Skip zero-byte files — they are corrupt/empty segments.
@@ -1664,13 +1630,20 @@ func mergeVideos(inputs []string, outputPath string) error {
 
 // handleMinDurationAndMerge checks whether a finalized video file meets the
 // minimum-duration threshold.  If the feature is disabled the check is skipped
-// and the caller proceeds to upload normally.  Callers should skip this
-// function entirely when skipMinDuration is set (channel pause).
+// and the caller proceeds to upload normally.
 //
 // When a video is shorter than the threshold it is moved into a pending
 // directory.  If pending segments already exist (including the one just moved),
-// they are merged together and the merged result is uploaded via
-// MoveToOutputDir.
+// they are merged together.  If the merged result meets the threshold it is
+// uploaded via MoveToOutputDir; otherwise it stays pending for the next
+// recording to extend it.
+//
+// The skipDefer flag is set when the channel is stopping/pausing — i.e. there
+// will be NO future recording to merge with.  In that case any accumulated
+// pending segments are force-merged and uploaded regardless of the threshold so
+// that short clips are never silently discarded or left orphaned in a .pending
+// directory with no process left to recover them (the background watcher that
+// used to re-scan pending dirs on startup has been removed).
 //
 // Returns true if the video was handled (deferred to pending or merged+uploaded)
 // so the caller should stop processing it.  Returns false when the caller
@@ -1689,13 +1662,14 @@ func (ch *Channel) handleMinDurationAndMerge(videoPath string, skipDefer bool) b
 		}
 	}
 
-		dur, err := VideoDurationSeconds(videoPath)
+	dur, err := VideoDurationSeconds(videoPath)
 	if err != nil {
 		ch.Warn("min-duration: could not probe %s: %v — deferring to pending", filepath.Base(videoPath), err)
-		// On probe failure, keep the video pending rather than uploading a corrupt/short file
+		// On probe failure, keep the video pending rather than uploading a
+		// corrupt/short file (it will be retried by RecoverPendingSegments).
 		pendingDir := pendingSegmentsDir(ch.Config.Username)
 		if mErr := os.MkdirAll(pendingDir, 0777); mErr == nil {
-			destPath := filepath.Join(pendingDir, filepath.Base(videoPath))
+			destPath := uniqueDestPath(filepath.Join(pendingDir, filepath.Base(videoPath)))
 			if rErr := os.Rename(videoPath, destPath); rErr == nil {
 				mu.Unlock()
 				return true
@@ -1735,14 +1709,21 @@ func (ch *Channel) handleMinDurationAndMerge(videoPath string, skipDefer bool) b
 			return false
 		}
 
+		// Release the lock while probing the merged output; we only need it
+		// again to delete the consumed inputs.
 		mergedDur, probeErr := VideoDurationSeconds(mergedPath)
-		if probeErr != nil || mergedDur < float64(minDur)*0.9 {
-			ch.Warn("min-duration: merged output for %s is %.1fs (expected >= %ds) — uploading current video separately",
+		if probeErr != nil {
+			ch.Warn("min-duration: could not probe merged output, uploading anyway: %v", probeErr)
+		} else if mergedDur < float64(minDur)*0.9 {
+			// Merged result is unexpectedly short (timestamp/merge glitch).
+			// Don't discard the pending segments blindly — upload the current
+			// long-enough video on its own and let recovery retry the pendings.
+			ch.Warn("min-duration: merged output for %s is %.1fs (expected >= %ds) — uploading current video separately, keeping pending for recovery",
 				filepath.Base(mergedPath), mergedDur, minDur)
 			os.Remove(mergedPath)
-			for _, s := range mergeInputs {
-				os.Remove(s)
-			}
+			mu.Lock()
+			_ = os.Remove(videoPath)
+			mu.Unlock()
 			return false
 		}
 
@@ -1765,15 +1746,48 @@ func (ch *Channel) handleMinDurationAndMerge(videoPath string, skipDefer bool) b
 
 	// Video is too short.
 	if skipDefer {
-		// Pausing/stopping: there is no future recording to merge with, and
-		// uploads below the minimum duration are not allowed, so the short
-		// segment is dropped rather than uploaded or deferred.
-		ch.Info("min-duration: %s is %.1fs (< %ds) — skipped (no upload on stop/pause)", filepath.Base(videoPath), dur, minDur)
+		// Channel is stopping/pausing — force-merge with any pending segments
+		// and upload regardless of threshold so no recording is lost. If there
+		// is nothing to merge with, still upload the short clip (we cannot
+		// indefinitely defer it with no future recording to extend it).
+		segments := segmentsForChannel(ch.Config.Username)
+		if len(segments) == 0 {
+			ch.Info("min-duration: %s is %.1fs (< %ds) on stop — no pending to merge, uploading as-is (no data loss)",
+				filepath.Base(videoPath), dur, minDur)
+			mu.Unlock()
+			return false // caller uploads directly
+		}
+		mergeInputs := make([]string, len(segments))
+		copy(mergeInputs, segments)
+		allInputs := append(mergeInputs, videoPath)
+		ch.Info("min-duration: %s is %.1fs (< %ds) on stop — force-merging %d pending segment(s) and uploading",
+			filepath.Base(videoPath), dur, minDur, len(mergeInputs))
+		mergedPath := videoPath + ".merged.mp4"
 		mu.Unlock()
+		if mErr := mergeVideos(allInputs, mergedPath); mErr != nil {
+			os.Remove(mergedPath)
+			ch.Error("min-duration: force-merge failed: %v — uploading short clip individually to avoid data loss", mErr)
+			for _, s := range mergeInputs {
+				ch.MoveToOutputDir(s)
+			}
+			return false // caller uploads the current short clip directly
+		}
+		mu.Lock()
+		for _, s := range mergeInputs {
+			os.Remove(s)
+		}
+		_ = os.Remove(videoPath)
+		mu.Unlock()
+		if ch.Config.Compress {
+			ch.CompressFile(mergedPath)
+		} else {
+			ch.MoveToOutputDir(mergedPath)
+		}
 		return true
 	}
 
-	// Video is too short — move to pending
+	// Video is too short and the channel is still live — defer to pending so
+	// the next recording can extend it past the threshold.
 	pendingDir := pendingSegmentsDir(ch.Config.Username)
 	if err := os.MkdirAll(pendingDir, 0777); err != nil {
 		mu.Unlock()
@@ -1783,7 +1797,7 @@ func (ch *Channel) handleMinDurationAndMerge(videoPath string, skipDefer bool) b
 		return true
 	}
 
-	destPath := filepath.Join(pendingDir, filepath.Base(videoPath))
+	destPath := uniqueDestPath(filepath.Join(pendingDir, filepath.Base(videoPath)))
 	if err := os.Rename(videoPath, destPath); err != nil {
 		mu.Unlock()
 		// Cannot defer, so drop rather than let it fall through to upload.
@@ -1799,7 +1813,7 @@ func (ch *Channel) handleMinDurationAndMerge(videoPath string, skipDefer bool) b
 	// belongs to a DIFFERENT channel is never pulled into this merge.
 	segments := segmentsForChannel(ch.Config.Username)
 	if len(segments) > 1 {
-		mergedPath := filepath.Join(pendingDir, "merged-"+filepath.Base(destPath))
+		mergedPath := uniqueDestPath(filepath.Join(pendingDir, "merged-"+filepath.Base(destPath)))
 		mergeInputs := make([]string, len(segments))
 		copy(mergeInputs, segments)
 		ch.Info("min-duration: merging %d pending segment(s)", len(mergeInputs))
@@ -1840,18 +1854,12 @@ func (ch *Channel) handleMinDurationAndMerge(videoPath string, skipDefer bool) b
 			for _, s := range mergeInputs {
 				os.Remove(s)
 			}
-			mergedDest := filepath.Join(pendingDir, "merged-"+filepath.Base(destPath))
-			if mErr := os.MkdirAll(pendingDir, 0777); mErr == nil {
-				if rErr := os.Rename(mergedPath, mergedDest); rErr != nil {
-					mu.Unlock()
-					// Cannot keep pending and must not upload a sub-threshold merge, so drop it.
-					ch.Error("min-duration: cannot keep merged result pending: %v — dropping (no upload)", rErr)
-					os.Remove(mergedPath)
-					return true
-				}
-			} else {
+			// Keep the merged result pending (with a unique name) so the next
+			// recording can extend it further.
+			mergedDest := uniqueDestPath(filepath.Join(pendingDir, "merged-"+filepath.Base(destPath)))
+			if mErr := os.Rename(mergedPath, mergedDest); mErr != nil {
 				mu.Unlock()
-				ch.Error("min-duration: cannot recreate pending dir: %v — dropping (no upload)", mErr)
+				ch.Error("min-duration: cannot keep merged result pending: %v — dropping (no upload)", mErr)
 				os.Remove(mergedPath)
 				return true
 			}
@@ -1862,6 +1870,56 @@ func (ch *Channel) handleMinDurationAndMerge(videoPath string, skipDefer bool) b
 	}
 
 	return true // video was deferred to pending (or merged+uploaded)
+}
+
+// RecoverPendingSegments processes any segments left in the channel's .pending
+// directory from a previous run (or a session that ended with unmerged clips).
+// With the background fsnotify watcher removed, nothing else re-scans these
+// directories, so without this recovery short deferred segments would be
+// orphaned forever and never uploaded.
+//
+// Stray segments owned by a different channel are relocated to their owner's
+// pending dir; unparseable files go to _unknown.  The channel's own segments
+// are force-merged and uploaded regardless of the minimum-duration threshold —
+// there is no future recording to extend them, so data must not be lost.  A
+// leftover below-threshold merged file is also uploaded so it is never stranded.
+func (ch *Channel) RecoverPendingSegments() {
+	user := ch.Config.Username
+	own := segmentsForChannel(user)
+	pendingDir := pendingSegmentsDir(user)
+
+	// Upload any stale merged-* files that were below threshold on a previous
+	// run (they can never grow now and would otherwise be stranded forever).
+	staleMerged := collectPendingSegmentsInDir(pendingDir)
+	for _, m := range staleMerged {
+		if strings.HasPrefix(filepath.Base(m), "merged-") {
+			ch.Info("recovery: uploading stale merged segment %s", filepath.Base(m))
+			ch.MoveToOutputDir(m)
+		}
+	}
+
+	if len(own) == 0 {
+		return
+	}
+
+	ch.Info("recovery: %d pending segment(s) found for %s — force-merging and uploading", len(own), user)
+	mergedPath := filepath.Join(pendingDir, "merged-recovered-"+user+".mp4")
+	if mErr := mergeVideos(own, mergedPath); mErr != nil {
+		ch.Error("recovery: merge failed (%v) — uploading %d segment(s) individually", mErr, len(own))
+		os.Remove(mergedPath)
+		for _, s := range own {
+			ch.MoveToOutputDir(s)
+		}
+		return
+	}
+	for _, s := range own {
+		os.Remove(s)
+	}
+	if ch.Config.Compress {
+		ch.CompressFile(mergedPath)
+	} else {
+		ch.MoveToOutputDir(mergedPath)
+	}
 }
 
 // ShouldSwitchFile determines whether a new file should be created.

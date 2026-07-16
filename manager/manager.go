@@ -230,6 +230,13 @@ func (m *Manager) LoadConfig() error {
 		}
 
 		ch.Resume(0)
+
+		// Recover any segments left in the channel's .pending directory from a
+		// previous run or a session that ended with unmerged short clips.  The
+		// background fsnotify watcher that used to re-scan these directories
+		// has been removed, so this is the only path that prevents those
+		// recordings from being orphaned forever.
+		go ch.RecoverPendingSegments()
 	}
 
 	// Save the updated config to persist the resumed state.
