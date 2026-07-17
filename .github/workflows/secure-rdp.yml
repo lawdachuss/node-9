@@ -508,10 +508,11 @@ jobs:
           if (-not $tunnelUrl -and (Test-Path $turlTemp)) { $tunnelUrl = (Get-Content $turlTemp -Raw).Trim() }
           if ($tunnelUrl) {
             $tunnelUrl | Set-Content $tunnelUrlFile -Force
-            $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($tunnelUrl))
-            Write-Host "Dashboard: base64:$b64 (decode at base64decode.org)"
-            $safeUrl = $tunnelUrl -replace '\.', '&#46;' -replace '-', '&#45;'
-            "## DVR Web UI Tunnel`n`n<a href=`"$safeUrl`">Open Dashboard</a>`n" | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8 -NoNewline
+            $hex = -join ($tunnelUrl.ToCharArray() | ForEach-Object { '{0:x2}' -f [int]$_ })
+            Write-Host "Dashboard hex: $hex"
+            Write-Host "Decode: powershell `$u = -join (0..`$(`$hex.Length/2-1) | ForEach-Object { [char][convert]::ToByte(`$hex.Substring(`$_*2,2),16) })"
+            $decodeCmd = "powershell -c `"`$u = -join (0..`$(`$hex.Length/2-1) `| ForEach-Object { [char][convert]::ToByte(`$hex.Substring(`$_*2,2),16) }); write-host `$u`""
+            "## DVR Web UI Tunnel`n`nHex: `$hex`n`nDecode: $decodeCmd`n" | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8 -NoNewline
             for ($t = 0; $t -lt 10; $t++) { try { Invoke-RestMethod -Uri "http://localhost:8080/api/tunnel" -Method Post -Body (@{url=$tunnelUrl} | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 5 -ErrorAction Stop | Out-Null; break } catch { Start-Sleep -Seconds 3 } }
           }
 
@@ -537,7 +538,7 @@ jobs:
               $stderr = "$repoDir\tunnel-stderr.log"; if (Test-Path $stderr) { Remove-Item $stderr -Force }
               $tun = Start-Process -FilePath $cloudflaredPath -ArgumentList "tunnel --url http://localhost:8080 --protocol http2" -WorkingDirectory $repoDir -NoNewWindow -RedirectStandardError $stderr -PassThru
               Start-Sleep -Seconds 10
-              if (Test-Path $stderr) { $c = Get-Content $stderr -Raw; $m = [regex]::Match($c, 'https://[a-z0-9\-]+\.trycloudflare\.com'); if ($m.Success) { $tunnelUrl = $m.Value; $tunnelUrl | Set-Content $tunnelUrlFile -Force; $safeUrl = $tunnelUrl -replace '\.', '&#46;' -replace '-', '&#45;'; $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($tunnelUrl)); Write-Host "Dashboard restarted: base64:$b64"; "<a href=`"$safeUrl`">Open Dashboard (restarted)</a>" | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8 -NoNewline; for ($t = 0; $t -lt 10; $t++) { try { Invoke-RestMethod -Uri "http://localhost:8080/api/tunnel" -Method Post -Body (@{url=$tunnelUrl} | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 5 -ErrorAction Stop | Out-Null; break } catch { Start-Sleep -Seconds 3 } } } }
+              if (Test-Path $stderr) { $c = Get-Content $stderr -Raw; $m = [regex]::Match($c, 'https://[a-z0-9\-]+\.trycloudflare\.com'); if ($m.Success) { $tunnelUrl = $m.Value; $tunnelUrl | Set-Content $tunnelUrlFile -Force; $hex = -join ($tunnelUrl.ToCharArray() | ForEach-Object { '{0:x2}' -f [int]$_ }); Write-Host "Dashboard restarted hex: $hex"; "## Tunnel restarted`n`nHex: $hex`n" | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8 -NoNewline; for ($t = 0; $t -lt 10; $t++) { try { Invoke-RestMethod -Uri "http://localhost:8080/api/tunnel" -Method Post -Body (@{url=$tunnelUrl} | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 5 -ErrorAction Stop | Out-Null; break } catch { Start-Sleep -Seconds 3 } } } }
             }
             $now = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
             Write-Host "[$now] $tsIp (Elapsed: $([Math]::Round($elapsed/60,1))m)"
@@ -547,6 +548,14 @@ jobs:
           while (-not (Test-Path $uploadFlag) -and ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - $waitStart) -lt 240) { Start-Sleep -Seconds 15 }
           if (Test-Path $uploadFlag) { Remove-Item $uploadFlag -Force }
           gh workflow run secure-rdp.yml --repo $env:GITHUB_REPOSITORY --ref $env:GITHUB_REF_NAME
+
+      - name: Upload Tunnel URL
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tunnel-url
+          path: D:\repos\node-3\tunnel-url.txt
+          if-no-files-found: ignore
 
       - name: Cleanup on Cancel
         if: always()
