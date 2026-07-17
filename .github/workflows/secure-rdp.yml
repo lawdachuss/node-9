@@ -506,8 +506,23 @@ jobs:
 
           if ($tunnelJob) { $null = $tunnelJob | Wait-Job -Timeout 30 -ErrorAction SilentlyContinue; $tunnelUrl = Receive-Job $tunnelJob -ErrorAction SilentlyContinue; Remove-Job $tunnelJob -Force -ErrorAction SilentlyContinue }
           if (-not $tunnelUrl -and (Test-Path $turlTemp)) { $tunnelUrl = (Get-Content $turlTemp -Raw).Trim() }
+          function Shorten-Url {
+            param($u)
+            try { return (Invoke-RestMethod -Uri "https://tinyurl.com/api-create.php?url=$([uri]::EscapeDataString($u))" -TimeoutSec 10 -ErrorAction Stop).Trim() } catch {}
+            try { return (Invoke-RestMethod -Uri "https://is.gd/create.php?format=simple&url=$([uri]::EscapeDataString($u))" -TimeoutSec 10 -ErrorAction Stop).Trim() } catch {}
+            return $null
+          }
+          function Get-NodeId {
+            if (-not [string]::IsNullOrWhiteSpace($env:NODE_ID)) { return $env:NODE_ID }
+            if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_REPOSITORY)) {
+              $parts = $env:GITHUB_REPOSITORY -split '/'
+              if ($parts.Count -ge 2) { return $parts[1] }
+            }
+            return $null
+          }
           function Update-NodeWebUrl {
             param($nodeId, $url)
+            if ([string]::IsNullOrWhiteSpace($nodeId)) { Write-Warning "[WARN] nodeId is empty - skipping web_url update"; return }
             $sb = Get-Content "$repoDir\.env" -Raw -ErrorAction SilentlyContinue
             if (-not $sb) { Write-Warning "[WARN] .env not found - cannot update web_url"; return }
             if ($sb -match 'SUPABASE_URL=(.+)') { $sbUrl = $matches[1] } else { Write-Warning "[WARN] SUPABASE_URL not in .env"; return }
@@ -516,10 +531,13 @@ jobs:
             $apiUrl = "$sbUrl/rest/v1/nodes?node_id=eq.$([uri]::EscapeDataString($nodeId))"
             try { Invoke-RestMethod -Uri $apiUrl -Method Patch -Body $body -ContentType "application/json" -Headers @{ "apikey" = $sbKey; "Authorization" = "Bearer $sbKey" } -TimeoutSec 10 -ErrorAction Stop | Out-Null; Write-Host "[OK] Updated node $nodeId web_url in Supabase" } catch { Write-Warning "[WARN] Failed to update web_url: $_" }
           }
-          if ($tunnelUrl) {
+          $myNodeId = Get-NodeId
+          Write-Host "[OK] Node ID: $myNodeId"
+          if ($tunnelUrl -and $myNodeId) {
             $tunnelUrl | Set-Content $tunnelUrlFile -Force
-            Write-Host "[OK] Tunnel URL: $tunnelUrl"
-            Update-NodeWebUrl "$env:NODE_ID" $tunnelUrl
+            $short = Shorten-Url $tunnelUrl
+            if ($short) { Write-Host "[OK] Dashboard: $short" } else { Write-Host "[OK] Tunnel URL" }
+            Update-NodeWebUrl $myNodeId $tunnelUrl
           }
 
           Remove-Item $uploadFlag -Force -ErrorAction SilentlyContinue
@@ -544,9 +562,9 @@ jobs:
               $stderr = "$repoDir\tunnel-stderr.log"; if (Test-Path $stderr) { Remove-Item $stderr -Force }
               $tun = Start-Process -FilePath $cloudflaredPath -ArgumentList "tunnel --url http://localhost:8080 --protocol http2" -WorkingDirectory $repoDir -NoNewWindow -RedirectStandardError $stderr -PassThru
               Start-Sleep -Seconds 10
-              if (Test-Path $stderr) { $c = Get-Content $stderr -Raw; $m = [regex]::Match($c, 'https://[a-z0-9\-]+\.trycloudflare\.com'); if ($m.Success) { $tunnelUrl = $m.Value; $tunnelUrl | Set-Content $tunnelUrlFile -Force; Write-Host "[OK] New tunnel URL: $tunnelUrl"; Update-NodeWebUrl "$env:NODE_ID" $tunnelUrl } }
+              if (Test-Path $stderr) { $c = Get-Content $stderr -Raw; $m = [regex]::Match($c, 'https://[a-z0-9\-]+\.trycloudflare\.com'); if ($m.Success) { $tunnelUrl = $m.Value; $tunnelUrl | Set-Content $tunnelUrlFile -Force; $short = Shorten-Url $tunnelUrl; if ($short) { Write-Host "[OK] Dashboard restarted: $short" } else { Write-Host "[OK] Tunnel restarted" }; Update-NodeWebUrl $myNodeId $tunnelUrl } }
             }
-            $pub = if ($tunnelUrl) { " | PUBLIC: $tunnelUrl" } else { "" }
+            $pub = if ($tunnelUrl) { " | public" } else { "" }
             $now = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
             Write-Host "[$now] $tsIp$pub (Elapsed: $([Math]::Round($elapsed/60,1))m)"
             Start-Sleep -Seconds $sleepSecs
