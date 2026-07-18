@@ -46,7 +46,7 @@ const DEFAULT_CONFIG = {
     { key: 'f', label: 'female', target_buffer: 1 },
     { key: 'c', label: 'couple', target_buffer: 2 },
   ],
-  stale_minutes: 25,
+  stale_minutes: 70,
 };
 const DEFAULT_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
@@ -64,8 +64,6 @@ function jsonResponse(obj, status = 200) {
     headers: { 'content-type': 'application/json' },
   });
 }
-
-class BlockedError extends Error {}
 
 // ---- app_settings helpers ---------------------------------------------------
 function sbHeaders(env, extra = {}) {
@@ -239,13 +237,6 @@ async function trimChannelLogs(env) {
   } catch (e) {
     console.error('trimChannelLogs failed:', e.message);
   }
-}
-
-// ---- Cookie helpers ----------------------------------------------------------
-/** Convert Puppeteer cookie array ({name, value, ...}[]) to a Cookie header string. */
-function cookiesToHeader(cookies) {
-  if (!Array.isArray(cookies) || cookies.length === 0) return '';
-  return cookies.map((c) => `${c.name}=${c.value}`).join('; ');
 }
 
 // ---- Chaturbate fetch -------------------------------------------------------
@@ -455,103 +446,73 @@ async function runScan(env, dryrun = false) {
     const candidates = []; // {category, label, username, num_users}
     let page = null;
 
-    // ---- Phase 1: Try direct fetch WITH cached KV cookies (no browser) -------
+    // ---- Phase 1: Browser-based roomlist fetch -------------------------------
+    // Direct fetch from the worker's egress IP was attempted previously but
+    // always fails because the cf_clearance cookie is bound to Browser
+    // Rendering's IP. Instead, all API calls go through the browser page
+    // context — same IP, same cookies, no wasted budget.
     const cached = await loadCachedSession(env);
-    let directFetchedAll = false;
-    const topsByCategory = {}; // { catKey: [room, ...] }
+    const topsByCategory = {};
 
-    for (const cat of cfg.categories) {
+    if (await isRateLimited(env)) {
+      result.method = 'rate_limited';
+      const msg = 'rate limited — skipping scan until next UTC day';
+      result.errors.push(msg);
+      await logMany(env, [{ username: '__autopilot__', log_level: 'warn', message: `autopilot: ${msg}` }]);
+    } else if (env.BROWSER) {
       try {
-        const data = await chaturbateFetchDirect(
-          roomListUrl(cat.key, env),
-          env,
-          cached?.cookies
-        );
-        topsByCategory[cat.key] = topRooms(data, cfg.min_viewers);
+        browser = await puppeteer.launch(env.BROWSER);
+        await clearRateLimited(env);
       } catch (e) {
-        topsByCategory[cat.key] = null;
-        if (!env.BROWSER) {
-          // No browser fallback — this is a final error.
-          result.blocked = result.blocked || e instanceof BlockedError;
-          result.errors.push(`autopilot scan failed for ${cat.label}: ${e.message}`);
-        } else {
-          // Browser may still recover — only log to avoid polluting result.errors.
-          console.error(`direct cache fetch failed for ${cat.label}: ${e.message}`);
-        }
-      }
-    }
-
-    directFetchedAll = Object.values(topsByCategory).every((t) => t !== null);
-
-    if (directFetchedAll) {
-      result.method = 'direct_cache';
-    }
-
-    // ---- Phase 2: Browser fallback for categories direct fetch couldn't serve -
-    if (!directFetchedAll && env.BROWSER) {
-      if (await isRateLimited(env)) {
-        result.method = 'rate_limited';
-        const msg = 'rate limited (429) — skipping browser launch until next UTC day';
+        const is429 = e.message.includes('429');
+        const msg = `browser launch failed: ${e.message}`;
         result.errors.push(msg);
-        await logMany(env, [{ username: '__autopilot__', log_level: 'warn', message: `autopilot: ${msg}` }]);
-      } else {
-        for (let attempt = 0; attempt < 3; attempt++) {
+        await logMany(env, [{ username: '__autopilot__', log_level: 'error', message: msg }]);
+        if (is429) await setRateLimited(env);
+      }
+
+      if (browser) {
+        result.method = 'browser';
+        page = await browser.newPage();
+        await page.setUserAgent(env.CB_USER_AGENT || DEFAULT_UA);
+
+        await page.setRequestInterception(true);
+        page.on('request', (req) => {
+          const t = req.resourceType();
+          if (t === 'document' || t === 'script' || t === 'xhr' || t === 'fetch') {
+            req.continue();
+          } else {
+            req.abort().catch(() => {});
+          }
+        });
+
+        if (cached?.cookies?.length) {
           try {
-            browser = await puppeteer.launch(env.BROWSER);
-            await clearRateLimited(env);
-            break;
+            await page.setCookie(...cached.cookies);
+          } catch (_) {
+            /* ignore bad cookies, page will re-solve */
+          }
+        }
+        await page
+          .goto(env.CB_DOMAIN + '/', { waitUntil: 'domcontentloaded', timeout: 30000 })
+          .catch(() => {});
+
+        for (const cat of cfg.categories) {
+          try {
+            const data = await fetchRoomList(page, cat.key, env);
+            topsByCategory[cat.key] = topRooms(data, cfg.min_viewers);
           } catch (e) {
-            const is429 = e.message.includes('429');
-            const msg = `browser launch attempt ${attempt + 1} failed: ${e.message}`;
+            const msg = `browser scan failed for ${cat.label}: ${e.message}`;
             result.errors.push(msg);
             await logMany(env, [{ username: '__autopilot__', log_level: 'error', message: msg }]);
-            if (is429) await setRateLimited(env);
-            if (attempt < 2) await new Promise((r) => setTimeout(r, 8000 * (attempt + 1)));
+            await alert(env, msg);
           }
         }
-
-        if (browser) {
-          result.method = 'browser';
-          page = await browser.newPage();
-          await page.setUserAgent(env.CB_USER_AGENT || DEFAULT_UA);
-
-          await page.setRequestInterception(true);
-          page.on('request', (req) => {
-            const t = req.resourceType();
-            if (t === 'document' || t === 'script' || t === 'xhr' || t === 'fetch') {
-              req.continue();
-            } else {
-              req.abort().catch(() => {});
-            }
-          });
-
-          if (cached?.cookies?.length) {
-            try {
-              await page.setCookie(...cached.cookies);
-            } catch (_) {
-              /* ignore bad cookies, page will re-solve */
-            }
-          }
-          await page
-            .goto(env.CB_DOMAIN + '/', { waitUntil: 'domcontentloaded', timeout: 30000 })
-            .catch(() => {});
-
-          for (const cat of cfg.categories) {
-            try {
-              const data = await fetchRoomList(page, cat.key, env);
-              topsByCategory[cat.key] = topRooms(data, cfg.min_viewers);
-            } catch (e) {
-              result.blocked = result.blocked || e instanceof BlockedError;
-              const msg = `browser scan failed for ${cat.label}: ${e.message}`;
-              result.errors.push(msg);
-              await logMany(env, [{ username: '__autopilot__', log_level: 'error', message: msg }]);
-              await alert(env, msg);
-            }
-          }
-        } else {
-          result.errors.push('browser not available; direct fetch fallback results are partial');
-        }
+      } else {
+        result.errors.push('browser not available');
       }
+    } else {
+      result.errors.push('BROWSER binding not configured');
     }
 
     // ---- Phase 3: Build candidates from whatever topsByCategory we have -------
@@ -680,44 +641,6 @@ async function runScan(env, dryrun = false) {
   });
 
   return result;
-}
-
-/**
- * Direct fetch to Chaturbate's roomlist API. Merges cookies from:
- *   1. The static `CB_COOKIES` secret (seed/fallback)
- *   2. The KV-cached puppet session (fresh cf_clearance from last browser run)
- *
- * When called without cached cookies this degrades to the static secret only
- * (same behaviour as before). Pass `cachedCookies` from `loadCachedSession()`.
- */
-async function chaturbateFetchDirect(url, env, cachedCookies) {
-  const headers = {
-    'User-Agent': env.CB_USER_AGENT || DEFAULT_UA,
-    Referer: env.CB_DOMAIN + '/',
-    Origin: env.CB_DOMAIN,
-    Accept: 'application/json, text/javascript, */*; q=0.01',
-    'Accept-Language': 'en-US,en;q=0.9',
-  };
-
-  // Merge static secret + KV-cached cookies into a single Cookie header.
-  const parts = [];
-  if (env.CB_COOKIES) parts.push(env.CB_COOKIES);
-  const extra = cookiesToHeader(cachedCookies);
-  if (extra) parts.push(extra);
-  if (parts.length) headers['Cookie'] = parts.join('; ');
-
-  const resp = await fetch(url, { headers, redirect: 'follow' });
-  const ct = resp.headers.get('content-type') || '';
-  if (resp.status >= 400 || ct.includes('text/html')) {
-    let snippet = '';
-    try {
-      snippet = (await resp.text()).slice(0, 200);
-    } catch (_) {
-      /* ignore */
-    }
-    throw new BlockedError(`HTTP ${resp.status} (${ct || 'unknown'}): ${snippet}`);
-  }
-  return resp.json();
 }
 
 // ---- Health check (separate cron) ------------------------------------------

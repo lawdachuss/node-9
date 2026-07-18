@@ -586,6 +586,8 @@ jobs:
       - name: Upload Tunnel URL
         if: always()
         uses: actions/upload-artifact@v4
+        env:
+          ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
         with:
           name: tunnel-url
           path: D:\repos\node-3\tunnel-url.txt
