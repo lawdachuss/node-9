@@ -64,6 +64,12 @@ CREATE INDEX IF NOT EXISTS idx_channels_created_at ON channels(created_at);
 -- ============================================================================
 -- 2. RECORDINGS
 -- ============================================================================
+-- Thumbnail/preview URLs are now sourced entirely from the upload hosts
+-- (SeekStreaming / UPnShare poster + preview) and stored inline on this row
+-- (thumbnail_url / preview_url). sprite_url is RETAINED (and left empty by the
+-- backend) for backwards compatibility with the external frontend's
+-- recordings_with_links view, which still selects it. All sprite-sheet / VTT
+-- generation was removed from the application.
 CREATE TABLE IF NOT EXISTS recordings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     channel_id UUID REFERENCES channels(id) ON DELETE CASCADE,
@@ -177,27 +183,13 @@ CREATE INDEX IF NOT EXISTS idx_channel_logs_level ON channel_logs(log_level, cre
 ALTER TABLE channel_logs ADD COLUMN IF NOT EXISTS node_id TEXT;
 
 -- ============================================================================
--- 7. PREVIEW_IMAGES
--- ============================================================================
-CREATE TABLE IF NOT EXISTS preview_images (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    recording_id UUID REFERENCES recordings(id) ON DELETE CASCADE,
-    filename VARCHAR(500) NOT NULL,
-    thumbnail_url TEXT,
-    sprite_url TEXT,
-    preview_url TEXT,
-    sprite_vtt_url TEXT,
-    instance_id TEXT NOT NULL DEFAULT 'default',
-    uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(filename)
-);
-
-CREATE INDEX IF NOT EXISTS idx_preview_images_recording_id ON preview_images(recording_id);
-CREATE INDEX IF NOT EXISTS idx_preview_images_filename ON preview_images(filename);
-CREATE INDEX IF NOT EXISTS idx_preview_images_instance ON preview_images(instance_id);
-
--- Add sprite_vtt_url to existing preview_images tables (safe re-run via IF NOT EXISTS)
-ALTER TABLE preview_images ADD COLUMN IF NOT EXISTS sprite_vtt_url TEXT;
+-- 7. PREVIEW_IMAGES — REMOVED.
+-- The preview_images table is no longer used by the backend: thumbnail and
+-- preview URLs are now stored inline on the recordings row (thumbnail_url /
+-- preview_url), and all sprite-sheet / VTT generation was deleted. The external
+-- frontend keeps its own preview_images table in its own database
+-- (see external-frontend.sql); this DROP only cleans the backend schema.
+DROP TABLE IF EXISTS public.preview_images CASCADE;
 
 -- ============================================================================
 -- 8. UPLOAD_JOURNAL
@@ -228,11 +220,10 @@ CREATE TABLE IF NOT EXISTS pipeline_states (
     filename TEXT NOT NULL,
     username TEXT NOT NULL DEFAULT '',
     file_size BIGINT DEFAULT 0,
-    current_stage TEXT NOT NULL DEFAULT 'thumbnail',
+    current_stage TEXT NOT NULL DEFAULT 'thumbnail_upload',
     failed BOOLEAN DEFAULT FALSE,
     last_error TEXT DEFAULT '',
     thumb_url TEXT DEFAULT '',
-    sprite_url TEXT DEFAULT '',
     preview_url TEXT DEFAULT '',
     embed_url TEXT DEFAULT '',
     links TEXT DEFAULT '{}',
@@ -342,7 +333,6 @@ ALTER TABLE upload_links ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tunnels ENABLE ROW LEVEL SECURITY;
 ALTER TABLE channel_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE preview_images ENABLE ROW LEVEL SECURITY;
 ALTER TABLE upload_journal ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pipeline_states ENABLE ROW LEVEL SECURITY;
 ALTER TABLE disk_usage ENABLE ROW LEVEL SECURITY;
@@ -358,7 +348,7 @@ BEGIN
         FROM pg_policies
         WHERE schemaname = 'public'
           AND tablename IN ('channels', 'recordings', 'upload_links', 'app_settings',
-                            'tunnels', 'channel_logs', 'preview_images',
+                            'tunnels', 'channel_logs',
                             'upload_journal', 'pipeline_states', 'disk_usage',
                             'nodes', 'channel_assignments')
     LOOP
@@ -377,8 +367,6 @@ CREATE POLICY "Allow all operations on app_settings" ON app_settings
 CREATE POLICY "Allow all operations on tunnels" ON tunnels
     FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all operations on channel_logs" ON channel_logs
-    FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all operations on preview_images" ON preview_images
     FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all operations on upload_journal" ON upload_journal
     FOR ALL USING (true) WITH CHECK (true);
@@ -480,7 +468,6 @@ ALTER TABLE public.upload_links OWNER TO anon;
 ALTER TABLE public.app_settings OWNER TO anon;
 ALTER TABLE public.tunnels OWNER TO anon;
 ALTER TABLE public.channel_logs OWNER TO anon;
-ALTER TABLE public.preview_images OWNER TO anon;
 ALTER TABLE public.upload_journal OWNER TO anon;
 ALTER TABLE public.pipeline_states OWNER TO anon;
 ALTER TABLE public.disk_usage OWNER TO anon;

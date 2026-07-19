@@ -1313,41 +1313,13 @@ function initCustomControls() {
 
     v.addEventListener('loadedmetadata', updateTotalTime);
 
-    // Progress bar seek + thumbnail preview
+    // Progress bar seek + hover time tooltip
     var container = document.getElementById('progress-container');
-    var vttCues = null;
-    var vttLoaded = false;
-    var spriteVTTUrl = '{{ .SpriteVTTURL }}';
     if (container) {
         container.addEventListener('click', function(e) {
             var rect = container.getBoundingClientRect();
             var pct = (e.clientX - rect.left) / rect.width;
             v.currentTime = pct * v.duration;
-        });
-        container.addEventListener('mouseenter', function() {
-            if (spriteVTTUrl && !vttLoaded) {
-                vttLoaded = true;
-                fetch(spriteVTTUrl).then(function(r) { return r.text(); }).then(function(text) {
-                    vttCues = [];
-                    var lines = text.split('\n');
-                    var start = null, end = null, img = null;
-                    for (var i = 0; i < lines.length; i++) {
-                        var l = lines[i].trim();
-                        var m = l.match(/^(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})/);
-                        if (m) { start = vttToSeconds(m[1]); end = vttToSeconds(m[2]); continue; }
-                        if (start !== null && l.indexOf('#xywh=') > -1) {
-                            var parts = l.split('#xywh=');
-                            if (parts.length === 2) {
-                                var coords = parts[1].split(',');
-                                if (coords.length === 4) {
-                                    vttCues.push({ start: start, end: end, img: parts[0], x: parseInt(coords[0]), y: parseInt(coords[1]), w: parseInt(coords[2]), h: parseInt(coords[3]) });
-                                }
-                            }
-                            start = null;
-                        }
-                    }
-                }).catch(function() {});
-            }
         });
         container.addEventListener('mousemove', function(e) {
             var rect = container.getBoundingClientRect();
@@ -1361,35 +1333,6 @@ function initCustomControls() {
                 tooltip.style.left = (pct * 100) + '%';
                 tooltip.textContent = formatTime(pct * v.duration);
             }
-            var preview = document.getElementById('seekbar-preview');
-            var previewImg = document.getElementById('seekbar-preview-img');
-            var previewTime = document.getElementById('seekbar-preview-time');
-            if (preview && previewImg && previewTime && vttCues) {
-                var t = pct * v.duration;
-                var cue = null;
-                for (var i = 0; i < vttCues.length; i++) {
-                    if (t >= vttCues[i].start && t < vttCues[i].end) { cue = vttCues[i]; break; }
-                }
-                if (cue) {
-                    previewImg.style.backgroundImage = "url('" + cue.img + "')";
-                    previewImg.style.backgroundPosition = '-' + cue.x + 'px -' + cue.y + 'px';
-                    previewImg.style.backgroundSize = 'auto';
-                    previewTime.textContent = formatTime(t);
-                    preview.style.display = 'flex';
-                    var previewLeft = pct * 100;
-                    if (previewLeft < 8) previewLeft = 8;
-                    if (previewLeft > 92) previewLeft = 92;
-                    preview.style.left = previewLeft + '%';
-                } else {
-                    preview.style.display = 'none';
-                }
-            } else if (preview) {
-                preview.style.display = 'none';
-            }
-        });
-        container.addEventListener('mouseleave', function() {
-            var preview = document.getElementById('seekbar-preview');
-            if (preview) preview.style.display = 'none';
         });
     }
 

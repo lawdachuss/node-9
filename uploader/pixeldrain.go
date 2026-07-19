@@ -69,6 +69,19 @@ func (u *PixelDrainUploader) Upload(filePath string) (string, error) {
 	return "", fmt.Errorf("pixeldrain: all 3 attempts failed, last: %w", lastErr)
 }
 
+// UploadWithProgress mirrors Upload but accepts a progress callback for parity
+// with the other multi-host uploaders.  PixelDrain's single POST upload has
+// no incremental progress hook, so the callback is invoked once at completion.
+func (u *PixelDrainUploader) UploadWithProgress(filePath string, progress ProgressFunc) (string, error) {
+	url, err := u.Upload(filePath)
+	if err == nil && progress != nil {
+		if fi, statErr := os.Stat(filePath); statErr == nil {
+			progress(url, fi.Size(), fi.Size())
+		}
+	}
+	return url, err
+}
+
 func (u *PixelDrainUploader) uploadOnce(filePath string) (string, error) {
 	var b bytes.Buffer
 	mw := multipart.NewWriter(&b)

@@ -442,7 +442,6 @@ func ExtractSeekStreamingVideoID(embedURL string) string {
 // GetSeekStreamingMediaURLs fetches both the poster and preview URLs for a SeekStreaming video
 // in a single API call.
 func GetSeekStreamingMediaURLs(key, videoID string) (posterURL, previewURL string, err error) {
-	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequest("GET", fmt.Sprintf("https://seekstreaming.com/api/v1/video/manage/%s", videoID), nil)
 	if err != nil {
 		return "", "", fmt.Errorf("create request: %w", err)
@@ -450,7 +449,7 @@ func GetSeekStreamingMediaURLs(key, videoID string) (posterURL, previewURL strin
 	req.Header.Set("api-token", key)
 	req.Header.Set("User-Agent", defaultUserAgent)
 
-	resp, err := client.Do(req)
+	resp, err := mediaFetchClient.Do(req)
 	if err != nil {
 		return "", "", fmt.Errorf("request: %w", err)
 	}
@@ -483,7 +482,7 @@ func GetSeekStreamingMediaURLs(key, videoID string) (posterURL, previewURL strin
 // GetSeekStreamingPosterURL fetches the poster URL for a SeekStreaming video.
 // Also returns the preview URL if available.
 func GetSeekStreamingPosterURL(key, videoID string) (string, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
+	// client uses shared mediaFetchClient (adaptive per-host rate limiter)
 	req, err := http.NewRequest("GET", fmt.Sprintf("https://seekstreaming.com/api/v1/video/manage/%s", videoID), nil)
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
@@ -491,7 +490,7 @@ func GetSeekStreamingPosterURL(key, videoID string) (string, error) {
 	req.Header.Set("api-token", key)
 	req.Header.Set("User-Agent", defaultUserAgent)
 
-	resp, err := client.Do(req)
+	resp, err := mediaFetchClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request: %w", err)
 	}
@@ -519,7 +518,7 @@ func GetSeekStreamingPosterURL(key, videoID string) (string, error) {
 
 // GetSeekStreamingPreviewURL fetches the preview URL for a SeekStreaming video.
 func GetSeekStreamingPreviewURL(key, videoID string) (string, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
+	// client uses shared mediaFetchClient (adaptive per-host rate limiter)
 	req, err := http.NewRequest("GET", fmt.Sprintf("https://seekstreaming.com/api/v1/video/manage/%s", videoID), nil)
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
@@ -527,7 +526,7 @@ func GetSeekStreamingPreviewURL(key, videoID string) (string, error) {
 	req.Header.Set("api-token", key)
 	req.Header.Set("User-Agent", defaultUserAgent)
 
-	resp, err := client.Do(req)
+	resp, err := mediaFetchClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request: %w", err)
 	}

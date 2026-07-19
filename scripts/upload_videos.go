@@ -217,6 +217,8 @@ func main() {
 			server.Config.StreamWishAPIKeys,
 			&scriptLogger{},
 			server.Config.UpnshareKeys,
+			server.Config.PixelDrainAPIKey,
+			server.Config.LobFileAPIKey,
 		)
 
 		results := upl.UploadToAll(p)

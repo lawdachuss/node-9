@@ -300,12 +300,9 @@ type Recording struct {
 	Duration     float64  `json:"duration,omitempty"`
 	Gender       string   `json:"gender,omitempty"`
 	ThumbnailURL string   `json:"thumbnail_url,omitempty"`
-	SpriteURL    string   `json:"sprite_url,omitempty"`
 	PreviewURL   string   `json:"preview_url,omitempty"`
-	EmbedURL                 string   `json:"embed_url,omitempty"`
-	SeekStreamingPosterURL   string   `json:"seekstreaming_poster_url,omitempty"`
-	SeekStreamingPreviewURL  string   `json:"seekstreaming_preview_url,omitempty"`
-	InstanceID               string   `json:"instance_id,omitempty"`
+	EmbedURL     string   `json:"embed_url,omitempty"`
+	InstanceID   string   `json:"instance_id,omitempty"`
 	CreatedAt                string   `json:"created_at,omitempty"`
 	UpdatedAt                string   `json:"updated_at,omitempty"`
 }
@@ -322,6 +319,30 @@ func (c *Client) SaveRecording(rec *Recording) error {
 	if resp.StatusCode >= 400 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+	return nil
+}
+
+// PatchRecordingMedia updates only the host-sourced thumbnail and preview URLs
+// for a recording, matched by filename. Used by the async media-enrichment step
+// that re-fetches poster/preview from the upload host after they are generated.
+func (c *Client) PatchRecordingMedia(filename, thumbURL, previewURL string) error {
+	// Pass the map directly so requestWithRetry marshals it into the JSON body.
+	// (Passing an already-marshaled *bytes.Reader would be re-marshaled by
+	// requestWithRetry and produce an empty/incorrect body, silently updating
+	// zero rows — see request() which calls json.Marshal on the body arg.)
+	body := map[string]interface{}{
+		"thumbnail_url": thumbURL,
+		"preview_url":   previewURL,
+	}
+	resp, err := c.requestWithRetry("PATCH", "/recordings?filename=eq."+url.QueryEscape(filename), body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(b))
 	}
 	return nil
 }
@@ -349,6 +370,18 @@ func (c *Client) GetRecordingsByUsername(username string) ([]Recording, error) {
 // GetAllRecordings retrieves all recordings by paginating through the
 // result set using PostgREST offset/limit (max 1000 per page). This is
 // necessary because Supabase free tier caps single-query results at 1000.
+// GetNewestRecordings returns up to limit recordings ordered newest-first by
+// timestamp. Used by the media watcher to scan only recent recordings (where
+// host-generated poster/preview URLs are still likely to appear).
+func (c *Client) GetNewestRecordings(limit int) ([]Recording, error) {
+	var recs []Recording
+	path := fmt.Sprintf("/recordings?order=timestamp.desc&limit=%d", limit)
+	if err := c.get(path, &recs); err != nil {
+		return nil, err
+	}
+	return recs, nil
+}
+
 func (c *Client) GetAllRecordings() ([]Recording, error) {
 	var all []Recording
 	offset := 0
@@ -372,11 +405,6 @@ func (c *Client) GetAllRecordings() ([]Recording, error) {
 // DeleteRecording removes a recording
 func (c *Client) DeleteRecording(filename string) error {
 	return c.delete(fmt.Sprintf("/recordings?filename=eq.%s", url.QueryEscape(filename)))
-}
-
-// DeletePreviewImage removes a preview image by filename
-func (c *Client) DeletePreviewImage(filename string) error {
-	return c.delete(fmt.Sprintf("/preview_images?filename=eq.%s", url.QueryEscape(filename)))
 }
 
 // DeleteUploadLinksByRecordingID removes all upload links for a recording
@@ -637,104 +665,6 @@ func (c *Client) CheckChannelLogsSchema() []string {
 }
 
 // ============================================================================
-// PREVIEW IMAGES
-// ============================================================================
-
-type PreviewImage struct {
-	ID           string `json:"id,omitempty"`
-	RecordingID  string `json:"recording_id,omitempty"`
-	Filename     string `json:"filename"`
-	ThumbnailURL string `json:"thumbnail_url,omitempty"`
-	SpriteURL    string `json:"sprite_url,omitempty"`
-	PreviewURL   string `json:"preview_url,omitempty"`
-	SpriteVTTURL string `json:"sprite_vtt_url,omitempty"`
-	InstanceID   string `json:"instance_id,omitempty"`
-	UploadedAt   string `json:"uploaded_at,omitempty"`
-}
-
-// SavePreviewImage creates or updates preview image metadata using Supabase's upsert functionality.
-// Uses on_conflict to atomically upsert by filename, avoiding TOCTOU race conditions.
-func (c *Client) SavePreviewImage(img *PreviewImage) error {
-	resp, err := c.requestWithRetry("POST", "/preview_images?on_conflict=filename", img)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-	return nil
-}
-
-// GetPreviewImage retrieves preview image metadata
-func (c *Client) GetPreviewImage(filename string) (*PreviewImage, error) {
-	var images []PreviewImage
-	err := c.get(fmt.Sprintf("/preview_images?filename=eq.%s&limit=1", url.QueryEscape(filename)), &images)
-	if err != nil {
-		return nil, err
-	}
-	if len(images) == 0 {
-		return nil, fmt.Errorf("preview image not found")
-	}
-	return &images[0], nil
-}
-
-// GetAllPreviewImages returns all preview images by paginating through the
-// result set using PostgREST offset/limit (max 1000 per page). This is
-// necessary because Supabase free tier caps single-query results at 1000.
-func (c *Client) GetAllPreviewImages() ([]PreviewImage, error) {
-	var all []PreviewImage
-	offset := 0
-	pageSize := 1000
-
-	for {
-		var page []PreviewImage
-		path := fmt.Sprintf("/preview_images?limit=%d&offset=%d", pageSize, offset)
-		if err := c.get(path, &page); err != nil {
-			return nil, err
-		}
-		all = append(all, page...)
-		if len(page) < pageSize {
-			break
-		}
-		offset += pageSize
-	}
-	return all, nil
-}
-
-// ClearPreviewURLs blanks out the preview_url column so the UI stops showing
-// stale/slow previews.  When before is non-empty it is treated as an ISO-8601
-// timestamp and only rows with an older timestamp are affected — this lets you
-// target only previews generated before a code fix.  When before is empty ALL
-// preview URLs are cleared.  Applies to both the preview_images and recordings
-// tables.
-func (c *Client) ClearPreviewURLs(before string) error {
-	// preview_images table (filtered by uploaded_at)
-	piPath := "/preview_images?preview_url=not.is.null"
-	if before != "" {
-		piPath += fmt.Sprintf("&uploaded_at=lt.%s", url.QueryEscape(before))
-	}
-	piBody := []map[string]interface{}{{ "preview_url": "" }}
-	if _, e := c.requestWithRetry("PATCH", piPath, piBody); e != nil {
-		return fmt.Errorf("clear preview_images: %w", e)
-	}
-
-	// recordings table (filtered by timestamp)
-	recPath := "/recordings?preview_url=not.is.null"
-	if before != "" {
-		recPath += fmt.Sprintf("&timestamp=lt.%s", url.QueryEscape(before))
-	}
-	recBody := []map[string]interface{}{{ "preview_url": "" }}
-	if _, e := c.requestWithRetry("PATCH", recPath, recBody); e != nil {
-		return fmt.Errorf("clear recordings: %w", e)
-	}
-
-	return nil
-}
-
-// ============================================================================
 // DISK USAGE
 // ============================================================================
 
@@ -843,7 +773,6 @@ type PipelineState struct {
 	Failed       bool   `json:"failed"`
 	LastError    string `json:"last_error,omitempty"`
 	ThumbURL     string `json:"thumb_url,omitempty"`
-	SpriteURL    string `json:"sprite_url,omitempty"`
 	PreviewURL   string `json:"preview_url,omitempty"`
 	EmbedURL     string `json:"embed_url,omitempty"`
 	LinksJSON    string `json:"links,omitempty"` // JSON-encoded map[string]string

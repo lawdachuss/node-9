@@ -35,9 +35,8 @@ var (
 	autoDetectedOnce sync.Once
 
 	// ffmpegSem limits concurrent lightweight ffmpeg/ffprobe processes
-	// across all channels: thumbnails, sprite sheets, GIF previews,
-	// and A/V muxing. These are I/O-bound and fast, so the pool is
-	// generous: NumCPU * 3, minimum 4.
+	// across all channels (A/V muxing and probing). These are I/O-bound
+	// and fast, so the pool is generous: NumCPU * 3, minimum 4.
 	ffmpegSem chan struct{}
 
 	// ffmpegHeavySem limits concurrent CPU-bound compression (re-encode)
@@ -190,11 +189,11 @@ func FFprobeCommandContext(ctx context.Context, args ...string) *exec.Cmd {
 
 // ValidateFFmpeg confirms that both ffmpeg and ffprobe binaries are present and
 // executable. Plain recording still works without them (the native Go muxer and
-// a duration fallback cover the basics), but muxing, probe/normalise, thumbnail,
-// sprite-sheet and preview generation all shell out to ffmpeg/ffprobe and will
-// fail per-recording if either is missing. We therefore fail LOUD at startup
-// (never silently) so a node missing ffmpeg is caught immediately instead of
-// degrading every recording with confusing "executable file not found" errors.
+// a duration fallback cover the basics), but muxing and probe/normalise shell
+// out to ffmpeg/ffprobe and will fail per-recording if either is missing. We
+// therefore fail LOUD at startup (never silently) so a node missing ffmpeg is
+// caught immediately instead of degrading every recording with confusing
+// "executable file not found" errors.
 func ValidateFFmpeg() error {
 	var missing []string
 	if err := runBinaryVersion(ffmpegBin()); err != nil {
@@ -309,6 +308,8 @@ func New(c *cli.Context) (*entity.Config, error) {
 		VidHideAPIKeys:          splitCS(c.String("vidhide-api-key")),
 		StreamWishAPIKeys:       splitCS(c.String("streamwish-api-key")),
 		UpnshareKeys:            splitCS(c.String("upnshare-key")),
+		PixelDrainAPIKey:        c.String("pixeldrain-api-key"),
+		LobFileAPIKey:           c.String("lobfile-api-key"),
 
 		SupabaseURL:    c.String("supabase-url"),
 		SupabaseAPIKey: c.String("supabase-api-key"),

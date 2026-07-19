@@ -46,16 +46,29 @@ func TestConfiguredUploadHostsIncludesSeekStreaming(t *testing.T) {
 	}
 }
 
-// TestConfiguredUploadHostsOnlyGoFile confirms the minimal case still works and
+// TestConfiguredUploadHostsMinimal confirms the minimal case still works and
 // that IsAlreadyFullyUploaded's "len(hosts) == 0 -> false" guard is never hit
-// when GoFile (always available) is the only configured host.
-func TestConfiguredUploadHostsOnlyGoFile(t *testing.T) {
+// when only the always-available hosts (GoFile + PixelDrain) are present.
+func TestConfiguredUploadHostsMinimal(t *testing.T) {
 	oldConfig := server.Config
 	defer func() { server.Config = oldConfig }()
-	server.Config = &entity.Config{} // no API keys -> only GoFile
+	server.Config = &entity.Config{} // no API keys -> GoFile + PixelDrain
 
 	hosts := configuredUploadHosts()
-	if len(hosts) != 1 || hosts[0] != "GoFile" {
-		t.Fatalf("expected only [GoFile], got %v", hosts)
+	has := func(name string) bool {
+		for _, h := range hosts {
+			if h == name {
+				return true
+			}
+		}
+		return false
+	}
+	for _, want := range []string{"GoFile", "PixelDrain"} {
+		if !has(want) {
+			t.Fatalf("expected %q in hosts, got %v", want, hosts)
+		}
+	}
+	if len(hosts) != 2 {
+		t.Fatalf("expected exactly [GoFile PixelDrain], got %v", hosts)
 	}
 }

@@ -413,19 +413,11 @@ func videoExt(name string) bool {
 	return ext == ".mp4" || ext == ".mkv"
 }
 
-// isSidecar returns true if the filename appears to be a sidecar/preview file.
-// Note: .video.muxed.mp4 is the final muxed output (not a sidecar), while
-// .video.mp4 and .audio.mp4 are raw A/V track files (sidecars).
+// isSidecar returns true if the filename is a raw A/V track file produced by the
+// recorder's muxer (not the final .muxed.mp4 output). These are cleaned up once
+// the tracks are merged.
 func isSidecar(name string) bool {
-	return strings.HasSuffix(name, ".thumb.webp") ||
-		strings.HasSuffix(name, ".thumb.jpg") ||
-		strings.HasSuffix(name, ".sprite.webp") ||
-		strings.HasSuffix(name, ".sprite.jpg") ||
-		strings.HasSuffix(name, ".preview.webp") ||
-		strings.HasSuffix(name, ".preview.mp4") ||
-		strings.HasSuffix(name, ".thumb") ||
-		strings.HasSuffix(name, ".sprite") ||
-		strings.HasSuffix(name, ".video.mp4") ||
+	return strings.HasSuffix(name, ".video.mp4") ||
 		strings.HasSuffix(name, ".audio.mp4")
 }
 
@@ -721,18 +713,11 @@ func moveToPendingDir(filePath, username string) error {
 	return os.Rename(filePath, dest)
 }
 
-// DeleteSidecarFiles removes preview sidecar files associated with a video path.
-// Skips .preview.mp4 if the video is currently in-flight (being uploaded) to
-// prevent a race between DeleteSidecarFiles and the preview upload goroutine.
+// DeleteSidecarFiles removes raw A/V track sidecar files associated with a
+// video path once the final recording has been produced/uploaded.
 func DeleteSidecarFiles(videoPath string) {
-	for _, suffix := range []string{".thumb.webp", ".thumb.jpg", ".sprite.webp", ".sprite.jpg", ".preview.webp", ".thumb", ".sprite"} {
+	for _, suffix := range []string{".video.mp4", ".audio.mp4"} {
 		os.Remove(videoPath + suffix)
-	}
-	// Only delete .preview.mp4 when the video is NOT in-flight — the preview
-	// upload goroutine checks this file's existence before uploading and would
-	// fail with "file not found" if DeleteSidecarFiles raced ahead of it.
-	if !IsUploadInFlight(videoPath) {
-		os.Remove(videoPath + ".preview.mp4")
 	}
 }
 
@@ -1094,6 +1079,8 @@ func configuredUploadHosts() []string {
 		cfg.StreamWishAPIKeys,
 		nil,
 		cfg.UpnshareKeys,
+		cfg.PixelDrainAPIKey,
+		cfg.LobFileAPIKey,
 	)
 	return upl.AvailableHosts()
 }

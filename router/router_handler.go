@@ -683,10 +683,6 @@ func VideoDetail(c *gin.Context) {
 		fileOnDisk = statErr == nil
 	}
 
-	// Load preview URLs from Supabase
-	thumbURL, spriteURL, previewURL := server.LoadPreviewLinks(filename)
-	spriteVTTURL := server.LoadSpriteVTTURL(filename)
-
 	// Look up recording metadata from recordings DB
 	db := loadRecordings()
 	links := map[string]string{}
@@ -697,7 +693,6 @@ func VideoDetail(c *gin.Context) {
 	filesize := int64(0)
 	embedURL := ""
 	dbThumbnailURL := ""
-	dbSpriteURL := ""
 	dbPreviewURL := ""
 	timestamp := ""
 	resolution := ""
@@ -719,7 +714,6 @@ func VideoDetail(c *gin.Context) {
 					filesize = rec.Filesize
 					embedURL = rec.EmbedURL
 					dbThumbnailURL = rec.ThumbnailURL
-					dbSpriteURL = rec.SpriteURL
 					dbPreviewURL = rec.PreviewURL
 					timestamp = rec.Timestamp
 					resolution = rec.Resolution
@@ -745,7 +739,6 @@ func VideoDetail(c *gin.Context) {
 						Resolution:   rec.Resolution,
 						Framerate:    rec.Framerate,
 						ThumbnailURL: rec.ThumbnailURL,
-						SpriteURL:    rec.SpriteURL,
 						PreviewURL:   rec.PreviewURL,
 					})
 					if len(related) >= 8 {
@@ -762,16 +755,9 @@ func VideoDetail(c *gin.Context) {
 		return
 	}
 
-	// Fall back to recordings DB if preview_links table had empty URLs
-	if thumbURL == "" && dbThumbnailURL != "" {
-		thumbURL = dbThumbnailURL
-	}
-	if spriteURL == "" && dbSpriteURL != "" {
-		spriteURL = dbSpriteURL
-	}
-	if previewURL == "" && dbPreviewURL != "" {
-		previewURL = dbPreviewURL
-	}
+	// Fall back to recordings DB if the row had empty URLs
+	thumbURL := dbThumbnailURL
+	previewURL := dbPreviewURL
 
 	hostPlayers := buildHostPlayers(links)
 
@@ -833,8 +819,6 @@ func VideoDetail(c *gin.Context) {
 		"ModTime":         modTime,
 		"Username":        username,
 		"ThumbnailURL":    thumbURL,
-		"SpriteURL":       spriteURL,
-		"SpriteVTTURL":    spriteVTTURL,
 		"PreviewURL":      previewURL,
 		"MimeType":        mimeType,
 		"Links":           links,

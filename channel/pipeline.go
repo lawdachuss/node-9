@@ -100,12 +100,14 @@ type Pipeline struct {
 	Resolution string   `json:"resolution"`
 	Framerate  int      `json:"framerate"`
 
-	// Results populated by stages, consumed by downstream stages
-	ThumbURL     string            `json:"thumb_url"`
-	SpriteURL    string            `json:"sprite_url"`
-	PreviewURL   string            `json:"preview_url"`
-	SpriteVTTURL string            `json:"sprite_vtt_url"`
-	EmbedURL     string            `json:"embed_url"`
+	// Results populated by stages, consumed by downstream stages.
+	// ThumbURL / PreviewURL are sourced entirely from the upload hosts
+	// (SeekStreaming + UPnShare both auto-generate a poster image
+	// and a hover-preview clip on every upload).  Local ffmpeg
+	// thumbnail/sprite/preview generation was removed — see stageSaveMetadata.
+	ThumbURL   string            `json:"thumb_url"`
+	PreviewURL string            `json:"preview_url"`
+	EmbedURL   string            `json:"embed_url"`
 	Links      map[string]string `json:"links"` // host -> download URL
 
 	mu sync.Mutex
@@ -145,7 +147,6 @@ func (p *Pipeline) toDBState() *database.PipelineState {
 		LastError:    p.LastError,
 		Retries:      p.Retries,
 		ThumbURL:     p.ThumbURL,
-		SpriteURL:    p.SpriteURL,
 		PreviewURL:   p.PreviewURL,
 		EmbedURL:     p.EmbedURL,
 		LinksJSON:    string(linksJSON),
@@ -165,7 +166,6 @@ func pipelineFromDBState(s *database.PipelineState) *Pipeline {
 		LastError:    s.LastError,
 		Retries:      s.Retries,
 		ThumbURL:     s.ThumbURL,
-		SpriteURL:    s.SpriteURL,
 		PreviewURL:   s.PreviewURL,
 		EmbedURL:     s.EmbedURL,
 		Links:        make(map[string]string),
@@ -174,24 +174,6 @@ func pipelineFromDBState(s *database.PipelineState) *Pipeline {
 		json.Unmarshal([]byte(s.LinksJSON), &p.Links)
 	}
 	return p
-}
-
-// stageThumbnail generates thumbnails, sprite, preview and uploads to Pixhost.
-// Does NOT advance the pipeline stage — the caller (processPipeline) manages
-// stage transitions after both thumbnail and upload finish in parallel.
-func (p *Pipeline) stageThumbnail(ch *Channel) error {
-	if p.ThumbURL != "" && p.SpriteURL != "" && p.PreviewURL != "" {
-		return nil
-	}
-	thumbURL, spriteURL, previewURL, spriteVTTURL := ch.generateThumbnail(p.FilePath)
-	if thumbURL == "" && spriteURL == "" && previewURL == "" {
-		return nil
-	}
-	p.ThumbURL = thumbURL
-	p.SpriteURL = spriteURL
-	p.PreviewURL = previewURL
-	p.SpriteVTTURL = spriteVTTURL
-	return nil
 }
 
 // stageUploadVideos uploads the video file to all configured hosts.
@@ -238,6 +220,8 @@ func (p *Pipeline) stageUploadVideos(ch *Channel) error {
 		cfg.StreamWishAPIKeys,
 		ch,
 		cfg.UpnshareKeys,
+		cfg.PixelDrainAPIKey,
+		cfg.LobFileAPIKey,
 	)
 
 	allHosts := upl.AvailableHosts()
@@ -461,6 +445,16 @@ uploadStageDone:
 		if p.EmbedURL == "" {
 			p.EmbedURL = embedURLFromLink(r.Host, r.DownloadLink)
 		}
+		// SeekStreaming + UPnShare auto-generate a poster image and a
+		// hover-preview clip on every upload.  These are our only
+		// source of thumbnail/preview now that local ffmpeg generation
+		// was removed, so capture them straight from the upload result.
+		if (r.Host == "SeekStreaming" || r.Host == "UPnShare") && r.PosterURL != "" && p.ThumbURL == "" {
+			p.ThumbURL = r.PosterURL
+		}
+		if (r.Host == "SeekStreaming" || r.Host == "UPnShare") && r.PreviewURL != "" && p.PreviewURL == "" {
+			p.PreviewURL = r.PreviewURL
+		}
 	}
 
 	if len(results) > 0 {
@@ -486,76 +480,28 @@ uploadStageDone:
 	return nil
 }
 
-// posterFromHosts checks if any host provided an auto-generated poster URL.
-func (p *Pipeline) posterFromHosts() string {
-	if embedURL, ok := p.Links["SeekStreaming"]; ok {
-		videoID := uploader.ExtractSeekStreamingVideoID(embedURL)
-		if videoID != "" {
-			if cfg := server.Config; cfg != nil && cfg.SeekStreamingKey != "" {
-				posterURL, err := uploader.GetSeekStreamingPosterURL(cfg.SeekStreamingKey, videoID)
-				if err == nil && posterURL != "" {
-					return posterURL
-				}
-			}
-		}
-	}
-	return ""
-}
-
-// seekStreamingMediaFromHosts fetches both poster and preview URLs from SeekStreaming
-// using the video ID extracted from the embed URL stored in Links.
-func (p *Pipeline) seekStreamingMediaFromHosts() (posterURL, previewURL string) {
-	if embedURL, ok := p.Links["SeekStreaming"]; ok {
-		videoID := uploader.ExtractSeekStreamingVideoID(embedURL)
-		if videoID != "" {
-			if cfg := server.Config; cfg != nil && cfg.SeekStreamingKey != "" {
-				posterURL, previewURL, _ = uploader.GetSeekStreamingMediaURLs(cfg.SeekStreamingKey, videoID)
-			}
-		}
-	}
-	return
-}
-
 // stageSaveMetadata persists recording metadata and all links to Supabase.
+//
+// Thumbnail + preview are sourced entirely from the upload hosts
+// (SeekStreaming + UPnShare), which auto-generate both on every
+// upload.  Local ffmpeg thumbnail/sprite/preview generation was removed,
+// so there is nothing to generate here — we just persist whatever the
+// hosts returned (captured in stageUploadVideos into p.ThumbURL /
+// p.PreviewURL).  If both hosts failed to provide media we warn but
+// still save the recording (the video links are what matter most).
 func (p *Pipeline) stageSaveMetadata(ch *Channel) error {
-	// Retry thumbnail generation if it failed during StageThumbnailUpload.
-	if p.ThumbURL == "" && p.SpriteURL == "" && p.PreviewURL == "" {
-		thumbURL, spriteURL, previewURL, spriteVTTURL := ch.generateThumbnail(p.FilePath)
-		if thumbURL != "" || spriteURL != "" || previewURL != "" {
-			p.ThumbURL = thumbURL
-			p.SpriteURL = spriteURL
-			p.PreviewURL = previewURL
-			p.SpriteVTTURL = spriteVTTURL
-			ch.Info("upload: generated thumbnails for %s (retry)", p.Filename)
-		} else if pu := p.posterFromHosts(); pu != "" {
-			p.ThumbURL = pu
-			ch.Info("upload: using auto-generated poster from host as thumbnail for %s", p.Filename)
-		} else {
-			ch.Warn("upload: thumbnail generation failed for %s (skipped)", p.Filename)
-		}
+	if p.ThumbURL != "" {
+		ch.Info("upload: thumbnail from host for %s — %s", p.Filename, p.ThumbURL)
 	}
-
-	if p.ThumbURL != "" || p.SpriteURL != "" || p.PreviewURL != "" {
-		// On pipeline resume, SpriteVTTURL isn't persisted in pipeline_states.
-		// Load the existing VTT URL from the DB to avoid overwriting it with empty.
-		if p.SpriteVTTURL == "" {
-			p.SpriteVTTURL = server.LoadSpriteVTTURL(p.Filename)
-		}
-		if err := server.SavePreviewLinks(p.Filename, p.ThumbURL, p.SpriteURL, p.PreviewURL, p.SpriteVTTURL); err != nil {
-			ch.Error("upload: could not save preview links for %s: %v", p.Filename, err)
-			p.LastError = err.Error()
-			return err
-		}
-		ch.Info("upload: saved preview links for %s", p.Filename)
+	if p.PreviewURL != "" {
+		ch.Info("upload: preview from host for %s — %s", p.Filename, p.PreviewURL)
+	}
+	if p.ThumbURL == "" && p.PreviewURL == "" {
+		ch.Warn("upload: no thumbnail/preview from SeekStreaming or UPnShare for %s (saved without preview)", p.Filename)
 	}
 
 	if len(p.Links) == 0 {
 		return fmt.Errorf("no upload links to save for %s", p.Filename)
-	}
-
-	seekPosterURL, seekPreviewURL := p.seekStreamingMediaFromHosts()
-	if seekPosterURL != "" || seekPreviewURL != "" {
-		ch.Info("upload: found SeekStreaming media — poster=%s preview=%s", seekPosterURL, seekPreviewURL)
 	}
 
 	timestamp := extractTimestampFromFilename(p.Filename)
@@ -586,14 +532,11 @@ func (p *Pipeline) stageSaveMetadata(ch *Channel) error {
 		p.FileSize,
 		dur,
 		p.Gender,
-		p.EmbedURL,
-		p.ThumbURL,
-		p.SpriteURL,
-		p.PreviewURL,
-		p.Links,
-		seekPosterURL,
-		seekPreviewURL,
-	); err != nil {
+			p.EmbedURL,
+			p.ThumbURL,
+			p.PreviewURL,
+			p.Links,
+		); err != nil {
 		ch.Error("upload: failed to save to Supabase: %v", err)
 		// Journal entries prevent retry — clean them so upload generates fresh links.
 		if p.FileHash != "" {
@@ -920,37 +863,10 @@ func (pq *PipelineQueue) processPipeline(p *Pipeline) {
 			p.advanceTo(StageDone)
 		} else {
 		ch.Info("pipeline: stage thumbnail_upload for %s", filename)
-		ch.SetUploadProgress(filename, "generating thumbnails and uploading to hosts", 5, 0, 0, 0, 0, "", nil)
+		ch.SetUploadProgress(filename, "uploading to hosts", 5, 0, 0, 0, 0, "", nil)
 
-		var wg sync.WaitGroup
-		var thumbErr error
 		var uploadErr error
-
-		// Start thumbnail generation + Pixhost upload in background
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
-			defer func() {
-				if r := recover(); r != nil {
-					ch.Error("pipeline: thumbnail panicked for %s: %v", filename, r)
-					thumbErr = fmt.Errorf("thumbnail panic: %v", r)
-				}
-			}()
-			thumbErr = p.stageThumbnail(ch)
-		}()
-
-		// Start video upload in background (acquires UploadSem)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			select {
-			case UploadSem <- struct{}{}:
-			case <-time.After(30 * time.Second):
-				ch.Warn("pipeline: upload slot unavailable for %s after 30s — skipping upload", filename)
-				uploadErr = fmt.Errorf("upload semaphore timeout")
-				return
-			}
-			defer func() { <-UploadSem }()
 			defer func() {
 				if r := recover(); r != nil {
 					ch.Error("pipeline: upload goroutine panicked for %s: %v", filename, r)
@@ -959,13 +875,8 @@ func (pq *PipelineQueue) processPipeline(p *Pipeline) {
 			}()
 			uploadErr = p.stageUploadVideos(ch)
 		}()
+		_ = uploadErr
 
-		// Wait for both to finish
-		wg.Wait()
-
-		if thumbErr != nil {
-			ch.Error("pipeline: thumbnail stage failed for %s: %v", filename, thumbErr)
-		}
 		if uploadErr != nil {
 			ch.Error("pipeline: upload stage failed for %s: %v", filename, uploadErr)
 			p.Failed = true

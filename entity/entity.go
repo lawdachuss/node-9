@@ -215,6 +215,8 @@ type Config struct {
 	VidHideAPIKeys     []string
 	StreamWishAPIKeys  []string
 	UpnshareKeys       []string
+	PixelDrainAPIKey   string // free, unlimited, never-expires file host (preview/VTT fallback + video host)
+	LobFileAPIKey      string // free, unlimited, never-expires file host (preview fallback)
 
 	SupabaseURL    string
 	SupabaseAPIKey string

@@ -8,7 +8,6 @@ import (
 	"io"
 	"math/big"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -426,11 +425,8 @@ func SaveRecordingsToDB(data []byte) error {
 		Framerate              int               `json:"framerate"`
 		Links                  map[string]string `json:"links"`
 		ThumbnailURL           string            `json:"thumbnail_url"`
-		SpriteURL              string            `json:"sprite_url"`
 		PreviewURL             string            `json:"preview_url"`
 		EmbedURL               string            `json:"embed_url"`
-		SeekStreamingPosterURL  string            `json:"seekstreaming_poster_url"`
-		SeekStreamingPreviewURL string            `json:"seekstreaming_preview_url"`
 		Filesize               int64             `json:"filesize"`
 	}
 
@@ -463,7 +459,7 @@ func SaveRecordingsToDB(data []byte) error {
 				Filesize:     rec.Filesize,
 				Gender:       chanData.Gender,
 				ThumbnailURL: rec.ThumbnailURL,
-				SpriteURL:    rec.SpriteURL,
+				PreviewURL:   rec.PreviewURL,
 				EmbedURL:     rec.EmbedURL,
 			}
 
@@ -484,19 +480,6 @@ func SaveRecordingsToDB(data []byte) error {
 				}
 				if err := client.SaveUploadLink(link); err != nil {
 					return fmt.Errorf("save upload link %s/%s: %w", rec.Filename, host, err)
-				}
-			}
-
-		if rec.ThumbnailURL != "" || rec.SpriteURL != "" || rec.PreviewURL != "" {
-			img := &database.PreviewImage{
-				RecordingID:  savedRec.ID,
-				Filename:     rec.Filename,
-				ThumbnailURL: rec.ThumbnailURL,
-				SpriteURL:    rec.SpriteURL,
-				PreviewURL:   rec.PreviewURL,
-			}
-				if err := client.SavePreviewImage(img); err != nil {
-					return fmt.Errorf("save preview image %s: %w", rec.Filename, err)
 				}
 			}
 		}
@@ -534,11 +517,8 @@ func LoadRecordingsFromDB() []byte {
 		Framerate              int               `json:"framerate"`
 		Links                  map[string]string `json:"links"`
 		ThumbnailURL           string            `json:"thumbnail_url"`
-		SpriteURL              string            `json:"sprite_url"`
 		PreviewURL             string            `json:"preview_url"`
 		EmbedURL               string            `json:"embed_url"`
-		SeekStreamingPosterURL  string            `json:"seekstreaming_poster_url"`
-		SeekStreamingPreviewURL string            `json:"seekstreaming_preview_url"`
 		Filesize               int64             `json:"filesize"`
 	}
 
@@ -597,11 +577,8 @@ func LoadRecordingsFromDB() []byte {
 			Framerate:              rec.Framerate,
 			Links:                  links,
 			ThumbnailURL:           rec.ThumbnailURL,
-			SpriteURL:              rec.SpriteURL,
 			PreviewURL:             rec.PreviewURL,
 			EmbedURL:               rec.EmbedURL,
-			SeekStreamingPosterURL:  rec.SeekStreamingPosterURL,
-			SeekStreamingPreviewURL: rec.SeekStreamingPreviewURL,
 			Filesize:               rec.Filesize,
 		}
 
@@ -628,40 +605,28 @@ func RecordingExists(filename string) bool {
 }
 
 // SaveRecordingWithLinks saves a recording and its upload links directly to Supabase.
-// Preview URLs should be saved separately via SavePreviewLinks before calling this.
-// This function only saves the recording metadata and upload links.
-func SaveRecordingWithLinks(username, filename, timestamp, roomTitle string, tags []string, viewers int, resolution string, framerate int, filesize int64, duration float64, gender, embedURL, thumbnailURL, spriteURL, previewURL string, links map[string]string, seekPosterURL ...string) error {
+// Thumbnail and preview URLs (host-sourced) are stored inline on the recording row.
+func SaveRecordingWithLinks(username, filename, timestamp, roomTitle string, tags []string, viewers int, resolution string, framerate int, filesize int64, duration float64, gender, embedURL, thumbnailURL, previewURL string, links map[string]string) error {
 	client := GetDBClient()
 	if client == nil {
 		return fmt.Errorf("Supabase not configured")
 	}
 
-	var seekPoster, seekPreview string
-	if len(seekPosterURL) > 0 {
-		seekPoster = seekPosterURL[0]
-	}
-	if len(seekPosterURL) > 1 {
-		seekPreview = seekPosterURL[1]
-	}
-
 	rec := &database.Recording{
-		Username:               username,
-		Filename:               filename,
-		Timestamp:              timestamp,
-		RoomTitle:              roomTitle,
-		Tags:                   tags,
-		Viewers:                viewers,
-		Resolution:             resolution,
-		Framerate:              framerate,
-		Filesize:               filesize,
-		Duration:               duration,
-		Gender:                 gender,
-		EmbedURL:               embedURL,
-		ThumbnailURL:           thumbnailURL,
-		SpriteURL:              spriteURL,
-		PreviewURL:             previewURL,
-		SeekStreamingPosterURL:  seekPoster,
-		SeekStreamingPreviewURL: seekPreview,
+		Username:     username,
+		Filename:     filename,
+		Timestamp:    timestamp,
+		RoomTitle:    roomTitle,
+		Tags:         tags,
+		Viewers:      viewers,
+		Resolution:   resolution,
+		Framerate:    framerate,
+		Filesize:     filesize,
+		Duration:     duration,
+		Gender:       gender,
+		EmbedURL:     embedURL,
+		ThumbnailURL: thumbnailURL,
+		PreviewURL:   previewURL,
 	}
 	// Skip channel_id lookup — the channels table is shared across instances
 	// and the FK would point to the wrong instance's row.
@@ -706,7 +671,7 @@ func SaveRecordingWithLinks(username, filename, timestamp, roomTitle string, tag
 
 // SaveRecordingBasics saves minimal recording metadata before upload starts.
 // This ensures the recording is never lost even if the process is killed
-// during upload. The full metadata (thumbnails, upload links) is saved
+// during upload. The full metadata (thumbnail, preview, upload links) is saved
 // later by stageSaveMetadata via the upsert on filename.
 func SaveRecordingBasics(username, filename, timestamp, roomTitle string, tags []string, viewers int, gender, resolution string, framerate int, filesize int64, duration float64) error {
 	client := GetDBClient()
@@ -864,91 +829,24 @@ func LoadCurrentTunnel() (string, error) {
 }
 
 // ─── Preview Links ────────────────────────────────────────────────────────────
+// Thumbnail and preview URLs are now sourced entirely from the upload hosts
+// (SeekStreaming / UPnShare poster + preview) and stored inline on the
+// recordings row (thumbnail_url / preview_url). The separate preview_images
+// table and all sprite-sheet / VTT generation were removed.
 
-// SavePreviewLinks saves preview image URLs to Supabase
-func SavePreviewLinks(filename, thumbnailURL, spriteURL, previewURL, spriteVTTURL string) error {
+// UpdateRecordingMediaURLs patches the host-sourced thumbnail/preview URLs on a
+// recording (matched by filename). Called by the async media-enrichment step
+// once the upload host has finished generating the poster/preview.
+func UpdateRecordingMediaURLs(filename, thumbnailURL, previewURL string) error {
 	client := GetDBClient()
 	if client == nil {
 		return fmt.Errorf("Supabase not configured")
 	}
-
-	img := &database.PreviewImage{
-		Filename:     filename,
-		ThumbnailURL: thumbnailURL,
-		SpriteURL:    spriteURL,
-		PreviewURL:   previewURL,
-		SpriteVTTURL: spriteVTTURL,
-		UploadedAt:   time.Now().UTC().Format("2006-01-02T15:04:05Z"),
-	}
-
-	if err := client.SavePreviewImage(img); err != nil {
+	if err := client.PatchRecordingMedia(filename, thumbnailURL, previewURL); err != nil {
 		return err
 	}
-
-	InvalidateAllCaches()
+	cacheClear()
 	return nil
-}
-
-// LoadPreviewLinks loads preview image URLs from Supabase
-func LoadPreviewLinks(filename string) (thumbnailURL, spriteURL, previewURL string) {
-	client := GetDBClient()
-	if client == nil {
-		return "", "", ""
-	}
-
-	img, err := client.GetPreviewImage(filename)
-	if err != nil {
-		return "", "", ""
-	}
-
-	return img.ThumbnailURL, img.SpriteURL, img.PreviewURL
-}
-
-// LoadSpriteVTTURL loads the sprite VTT URL from the preview_images table.
-func LoadSpriteVTTURL(filename string) string {
-	client := GetDBClient()
-	if client == nil {
-		return ""
-	}
-	img, err := client.GetPreviewImage(filename)
-	if err != nil || img == nil {
-		return ""
-	}
-	return img.SpriteVTTURL
-}
-
-// LoadAllPreviewLinks returns a map of filename -> [thumbnailURL, spriteURL, previewURL] for all preview images.
-// Use this instead of calling LoadPreviewLinks in a loop to avoid N+1 queries.
-func LoadAllPreviewLinks() map[string][3]string {
-	if data := cacheGet("preview_links"); data != nil {
-		var result map[string][3]string
-		if err := json.Unmarshal(data, &result); err == nil {
-			return result
-		}
-	}
-
-	client := GetDBClient()
-	if client == nil {
-		return nil
-	}
-
-	images, err := client.GetAllPreviewImages()
-	if err != nil {
-		fmt.Printf("[WARN] Failed to load all preview images: %v\n", err)
-		return nil
-	}
-
-	result := make(map[string][3]string, len(images))
-	for _, img := range images {
-		if img.Filename != "" && (img.ThumbnailURL != "" || img.SpriteURL != "" || img.PreviewURL != "") {
-			result[img.Filename] = [3]string{img.ThumbnailURL, img.SpriteURL, img.PreviewURL}
-		}
-	}
-
-	if data, err := json.Marshal(result); err == nil {
-		cacheSet("preview_links", data, 5*time.Minute)
-	}
-	return result
 }
 
 // DeleteChannelFromDB removes a channel record from Supabase.
@@ -970,96 +868,8 @@ func DeleteChannelsNotInDB(usernames []string) error {
 	return client.DeleteChannelsNotIn(usernames)
 }
 
-// UpdateRecordingThumbnails patches the thumbnail_url, sprite_url and preview_url on an
-// existing recording row identified by filename.
-func UpdateRecordingThumbnails(filename, thumbnailURL, spriteURL, previewURL string) error {
-	if thumbnailURL == "" && spriteURL == "" && previewURL == "" {
-		return nil
-	}
-	body, err := json.Marshal(map[string]string{
-		"thumbnail_url": thumbnailURL,
-		"sprite_url":    spriteURL,
-		"preview_url":   previewURL,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
-	}
-	resp, err := supabaseRequest("PATCH",
-		fmt.Sprintf("/recordings?filename=eq.%s", url.QueryEscape(filename)),
-		body,
-	)
-	if err != nil {
-		return fmt.Errorf("patch request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(b))
-	}
-	return nil
-}
-
-// SaveSpriteVTTURL does a targeted PATCH to set sprite_vtt_url on an existing
-// preview_images row without touching other fields.
-func SaveSpriteVTTURL(filename, vttURL string) error {
-	body, err := json.Marshal(map[string]string{
-		"sprite_vtt_url": vttURL,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
-	}
-	resp, err := supabaseRequest("PATCH",
-		fmt.Sprintf("/preview_images?filename=eq.%s", url.QueryEscape(filename)),
-		body,
-	)
-	if err != nil {
-		return fmt.Errorf("patch request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(b))
-	}
-	InvalidateAllCaches()
-	return nil
-}
-
-// SaveSpriteSheetURLs stores multi-sheet sprite URLs in the sprite_vtt_url field
-// as a JSON array (prefixed with "json:") so the frontend can discover all
-// sheets for seekbar preview rendering.
-func SaveSpriteSheetURLs(filename string, sheetURLs []string) error {
-	if len(sheetURLs) <= 1 {
-		return nil
-	}
-	data, err := json.Marshal(sheetURLs)
-	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
-	}
-	body, err := json.Marshal(map[string]string{
-		"sprite_vtt_url": "json:" + string(data),
-	})
-	if err != nil {
-		return fmt.Errorf("marshal body: %w", err)
-	}
-	resp, err := supabaseRequest("PATCH",
-		fmt.Sprintf("/preview_images?filename=eq.%s", url.QueryEscape(filename)),
-		body,
-	)
-	if err != nil {
-		return fmt.Errorf("patch request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(b))
-	}
-	InvalidateAllCaches()
-	return nil
-}
-
 // DeleteVideoCompletely removes all data associated with a video:
 // - Recording from Supabase recordings table
-// - Preview images from Supabase preview_images table
 // - Upload links from Supabase upload_links table
 // Returns a combined error if any deletion fails.
 func DeleteVideoCompletely(filename string) error {
@@ -1077,11 +887,6 @@ func DeleteVideoCompletely(filename string) error {
 		if err := client.DeleteUploadLinksByRecordingID(rec.ID); err != nil {
 			errs = append(errs, fmt.Sprintf("upload links: %v", err))
 		}
-	}
-
-	// Delete preview images
-	if err := client.DeletePreviewImage(filename); err != nil {
-		errs = append(errs, fmt.Sprintf("preview images: %v", err))
 	}
 
 	// Delete recording

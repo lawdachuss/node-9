@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -296,22 +295,6 @@ func (m *Manager) LoadConfig() error {
 		fmt.Println("[WARN] channels are running but state changes will be lost if the container restarts")
 	}
 
-	// Scan thumbnails for the UI
-	go func() {
-		m.ScanThumbnails()
-	}()
-
-	// Periodic thumbnail scan
-	if server.Config.OrphanCleanupInterval > 0 {
-		go func() {
-			ticker := time.NewTicker(time.Duration(server.Config.OrphanCleanupInterval) * time.Minute)
-			defer ticker.Stop()
-			for range ticker.C {
-				m.ScanThumbnails()
-			}
-		}()
-	}
-
 	return nil
 }
 
@@ -369,21 +352,6 @@ func (m *Manager) LoadPooledConfig() error {
 
 	fmt.Printf("[manager] LoadPooledConfig: loaded %d channel(s) for node %q\n",
 		created, server.NodeID())
-
-	// Scan thumbnails (same as LoadConfig)
-	go func() {
-		m.ScanThumbnails()
-	}()
-
-	if server.Config.OrphanCleanupInterval > 0 {
-		go func() {
-			ticker := time.NewTicker(time.Duration(server.Config.OrphanCleanupInterval) * time.Minute)
-			defer ticker.Stop()
-			for range ticker.C {
-				m.ScanThumbnails()
-			}
-		}()
-	}
 
 	return nil
 }
@@ -523,44 +491,6 @@ func (m *Manager) GetLocalChannels() []string {
 		return true
 	})
 	return list
-}
-
-// ScanThumbnails walks the videos directory and generates thumbnails for any
-// video file that is missing preview URLs in Supabase.
-func (m *Manager) ScanThumbnails() {
-	videoExts := map[string]bool{".mp4": true, ".mkv": true}
-	dirs := []string{"videos"}
-	if server.Config.OutputDir != "" {
-		dirs = append(dirs, server.Config.OutputDir)
-	}
-
-	for _, dir := range dirs {
-		filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info == nil || info.IsDir() {
-				return nil
-			}
-			ext := strings.ToLower(filepath.Ext(path))
-			if !videoExts[ext] {
-				return nil
-			}
-			// Skip A/V track sidecars (but keep .video.muxed.mp4 which is the final muxed output)
-			if strings.HasSuffix(info.Name(), ".video.mp4") || strings.HasSuffix(info.Name(), ".audio.mp4") {
-				return nil
-			}
-			// Only process files that are missing any preview URLs in Supabase
-			thumbURL, spriteURL, previewURL := server.LoadPreviewLinks(info.Name())
-			if thumbURL != "" && spriteURL != "" && previewURL != "" {
-				return nil
-			}
-			newThumb, newSprite, newPreview, newVTT := channel.GenerateThumbnailForFile(path)
-			if newThumb != "" || newSprite != "" || newPreview != "" {
-				if err := server.SavePreviewLinks(info.Name(), newThumb, newSprite, newPreview, newVTT); err != nil {
-					log.Printf("[thumb] failed to save preview links for %s: %v", info.Name(), err)
-				}
-			}
-			return nil
-		})
-	}
 }
 
 // CreateChannel starts monitoring an M3U8 stream.

@@ -64,7 +64,6 @@ type RecordingEntry struct {
 	Framerate    int               `json:"framerate"`
 	Links        map[string]string `json:"links"`
 	ThumbnailURL string            `json:"thumbnail_url"`
-	SpriteURL    string            `json:"sprite_url"`
 	PreviewURL   string            `json:"preview_url"`
 	EmbedURL     string            `json:"embed_url"`
 	Filesize     int64             `json:"filesize"`
@@ -88,7 +87,6 @@ type VideoEntry struct {
 	ModTime      string
 	ModTimeSort  string
 	ThumbnailURL string
-	SpriteURL    string
 	PreviewURL   string
 	IsOutputDir  bool
 	Links        map[string]string
@@ -196,16 +194,13 @@ func scanVideos() []*VideoEntry {
 		dirs = append(dirs, server.Config.OutputDir)
 	}
 
-	// Batch-load all preview URLs to avoid N+1 queries
-	previewLinks := server.LoadAllPreviewLinks()
-
 	for _, dir := range dirs {
 		absDir, err := filepath.Abs(dir)
 		if err != nil || seen[absDir] {
 			continue
 		}
 		seen[absDir] = true
-		entries = append(entries, walkDir(dir, previewLinks)...)
+		entries = append(entries, walkDir(dir)...)
 	}
 
 	recordings := loadRecordings()
@@ -229,9 +224,6 @@ func scanVideos() []*VideoEntry {
 						if rec.ThumbnailURL != "" {
 							e.ThumbnailURL = rec.ThumbnailURL
 						}
-						if rec.SpriteURL != "" {
-							e.SpriteURL = rec.SpriteURL
-						}
 						if rec.PreviewURL != "" {
 							e.PreviewURL = rec.PreviewURL
 						}
@@ -242,23 +234,6 @@ func scanVideos() []*VideoEntry {
 			fs := "uploaded"
 			if rec.Filesize > 0 {
 				fs = internal.FormatFilesize(int(rec.Filesize))
-			}
-			// For uploaded-only entries, supplement thumbnail/sprite from
-			// the preview_images table (previewLinks) if the recordings
-			// table has empty URLs (they are stored separately).
-			thumbURL := rec.ThumbnailURL
-			spriteURL := rec.SpriteURL
-			previewURL := rec.PreviewURL
-			if links, ok := previewLinks[filename]; ok {
-				if thumbURL == "" && links[0] != "" {
-					thumbURL = links[0]
-				}
-				if spriteURL == "" && links[1] != "" {
-					spriteURL = links[1]
-				}
-				if previewURL == "" && len(links) > 2 && links[2] != "" {
-					previewURL = links[2]
-				}
 			}
 			modTime := rec.Timestamp
 			if t, err := time.Parse(time.RFC3339, rec.Timestamp); err == nil {
@@ -281,9 +256,8 @@ func scanVideos() []*VideoEntry {
 				Gender:       chanData.Gender,
 				Resolution:   rec.Resolution,
 				Framerate:    rec.Framerate,
-				ThumbnailURL: thumbURL,
-				SpriteURL:    spriteURL,
-				PreviewURL:   previewURL,
+				ThumbnailURL: rec.ThumbnailURL,
+				PreviewURL:   rec.PreviewURL,
 			})
 		}
 	}
@@ -309,7 +283,7 @@ func loadRecordings() *RecordingsDB {
 	return &db
 }
 
-func walkDir(dir string, previewLinks map[string][3]string) []*VideoEntry {
+func walkDir(dir string) []*VideoEntry {
 	var entries []*VideoEntry
 
 	d, err := os.Open(dir)
@@ -326,7 +300,7 @@ func walkDir(dir string, previewLinks map[string][3]string) []*VideoEntry {
 	for _, item := range items {
 		full := filepath.Join(dir, item.Name())
 		if item.IsDir() {
-			entries = append(entries, walkDir(full, previewLinks)...)
+			entries = append(entries, walkDir(full)...)
 			continue
 		}
 
@@ -352,16 +326,6 @@ func walkDir(dir string, previewLinks map[string][3]string) []*VideoEntry {
 			isOutput = strings.HasPrefix(absPath, absOut)
 		}
 
-		// Look up preview URLs from preloaded map
-		var thumbURL, spriteURL, previewURL string
-		if links, ok := previewLinks[item.Name()]; ok {
-			thumbURL = links[0]
-			spriteURL = links[1]
-			if len(links) > 2 {
-				previewURL = links[2]
-			}
-		}
-
 		entries = append(entries, &VideoEntry{
 			Username:     username,
 			Filename:     item.Name(),
@@ -369,9 +333,6 @@ func walkDir(dir string, previewLinks map[string][3]string) []*VideoEntry {
 			Size:         sizeStr,
 			ModTime:      modTime,
 			ModTimeSort:  item.ModTime().Format(time.RFC3339),
-			ThumbnailURL: thumbURL,
-			SpriteURL:    spriteURL,
-			PreviewURL:   previewURL,
 			IsOutputDir:  isOutput,
 		})
 	}

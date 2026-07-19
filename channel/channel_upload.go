@@ -69,7 +69,7 @@ const (
 // Supabase for any hosts that already received this file (e.g. from a
 // previous interrupted run).  Those hosts are skipped.  After each attempt,
 // journal entries are upserted so crash recovery is precise.
-func (ch *Channel) uploadFile(filePath string, thumbURL, spriteURL, previewURL, spriteVTTURL string) bool {
+func (ch *Channel) uploadFile(filePath string) bool {
 	cfg := server.Config
 	if cfg == nil {
 		return false
@@ -117,6 +117,8 @@ func (ch *Channel) uploadFile(filePath string, thumbURL, spriteURL, previewURL, 
 		cfg.StreamWishAPIKeys,
 		ch, // Channel implements uploader.Logger
 		cfg.UpnshareKeys,
+		cfg.PixelDrainAPIKey,
+		cfg.LobFileAPIKey,
 	)
 
 	allHosts := upl.AvailableHosts()
@@ -226,34 +228,31 @@ uploadStageDone:
 		}
 	}
 
-	// Always save preview links to Supabase first — even if video upload fails,
-	// the preview images were already uploaded to image hosts.
-	if thumbURL != "" || spriteURL != "" || previewURL != "" {
-		if err := server.SavePreviewLinks(filename, thumbURL, spriteURL, previewURL, spriteVTTURL); err != nil {
-			ch.Error("upload: could not save preview links for %s: %v", filename, err)
-		} else {
-			ch.Info("upload: saved preview links for %s", filename)
-		}
-	}
-
 	// Persist successful upload results to recordings database
 	if len(success) > 0 {
 		dbSaved := false
 		links := map[string]string{}
 		var embedURL string
-		var seekPosterURL, seekPreviewURL string
+		var thumbURL, previewURL string
 		for _, r := range success {
 			links[r.Host] = r.DownloadLink
 			if embedURL == "" {
 				embedURL = embedURLFromLink(r.Host, r.DownloadLink)
 			}
-			if r.Host == "SeekStreaming" {
-				if r.PosterURL != "" {
-					seekPosterURL = r.PosterURL
-				}
-				if r.PreviewURL != "" {
-					seekPreviewURL = r.PreviewURL
-				}
+			// SeekStreaming + UPnShare auto-generate poster + preview.  These
+			// are produced asynchronously by the host, so they may be empty
+			// immediately after upload; the enrichment step re-fetches them.
+			if r.Host == "SeekStreaming" && r.PosterURL != "" && thumbURL == "" {
+				thumbURL = r.PosterURL
+			}
+			if r.Host == "SeekStreaming" && r.PreviewURL != "" && previewURL == "" {
+				previewURL = r.PreviewURL
+			}
+			if r.Host == "UPnShare" && r.PosterURL != "" && thumbURL == "" {
+				thumbURL = r.PosterURL
+			}
+			if r.Host == "UPnShare" && r.PreviewURL != "" && previewURL == "" {
+				previewURL = r.PreviewURL
 			}
 		}
 
@@ -285,11 +284,8 @@ uploadStageDone:
 			ch.Gender,
 			embedURL,
 			thumbURL,
-			spriteURL,
 			previewURL,
 			links,
-			seekPosterURL,
-			seekPreviewURL,
 		); err != nil {
 			ch.Error("upload: failed to save to Supabase: %v", err)
 			// Journal entries were already saved — if we leave them, the upload
@@ -305,6 +301,11 @@ uploadStageDone:
 			dbSaved = true
 			ch.Info("upload: saved recording metadata to Supabase for %s", filename)
 		}
+
+		// Host poster/preview URLs are filled in by the background media
+		// watcher (server.StartMediaWatcher), which scans recordings and
+		// back-fills them once SeekStreaming/UPnShare generates them
+		// asynchronously.  This keeps the upload path fast and non-blocking.
 
 		// Delete local file only once ALL hosts have the file safely AND
 		// the metadata is persisted.  If the DB save failed, the journal

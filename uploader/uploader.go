@@ -168,8 +168,8 @@ func newDirectClient(timeout time.Duration) *http.Client {
 //	- Proxy is explicitly nil so uploads never route through the Chaturbate
 //	  SOCKS5 proxy (only Chaturbate/CDN traffic should use it).
 //	- DisableCompression avoids wasting CPU on gzip of already-compressed video.
-func newUploadTransport(disableKeepAlives bool) *http.Transport {
-	return &http.Transport{
+func newUploadTransport(disableKeepAlives bool) http.RoundTripper {
+	base := &http.Transport{
 		Proxy:                 nil,
 		DialContext:           dialWithTuning(30 * time.Second),
 		DisableKeepAlives:     disableKeepAlives,
@@ -183,6 +183,10 @@ func newUploadTransport(disableKeepAlives bool) *http.Transport {
 		WriteBufferSize:       1 << 20,
 		ReadBufferSize:        1 << 20,
 	}
+	// Wrap with the process-wide adaptive per-host rate limiter so that
+	// concurrent uploads across channels (and the media watcher, which shares
+	// the same hosts) coordinate cooldowns instead of storming the host.
+	return wrapWithRateLimit(base)
 }
 
 // multipartStream builds a multipart request body that streams the file without
@@ -347,6 +351,7 @@ type MultiHostUploader struct {
 	vidhide       *VidHideUploader
 	streamwish    *StreamWishUploader
 	upnshare      *UPnShareUploader
+	pixeldrain    *PixelDrainUploader
 	log           Logger
 	hostInitOnce  sync.Once
 	hosts         map[string]uploaderFunc // host name -> upload function, lazy-init
@@ -394,13 +399,19 @@ func (m *MultiHostUploader) initHosts() {
 		if m.upnshare != nil && m.upnshare.keys.count() > 0 {
 			m.hosts["UPnShare"] = m.upnshare.UploadWithProgress
 		}
+		// PixelDrain: free, unlimited storage, never expires. Treated as a
+		// primary permanent host (like GoFile/Streamtape/Mixdrop), not an
+		// optional extra. API key may be empty for anonymous uploads.
+		if m.pixeldrain != nil {
+			m.hosts["PixelDrain"] = m.pixeldrain.UploadWithProgress
+		}
 	})
 }
 
 // NewMultiHostUploader creates a new multi-host uploader.
 // vidHideAPIKeys and streamWishAPIKeys support comma-separated multiple keys
 // for automatic key rotation on daily quota limits.
-func NewMultiHostUploader(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken, seekStreamingKey string, vidHideAPIKeys, streamWishAPIKeys []string, log Logger, upnshareKeys []string) *MultiHostUploader {
+func NewMultiHostUploader(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken, seekStreamingKey string, vidHideAPIKeys, streamWishAPIKeys []string, log Logger, upnshareKeys []string, pixeldrainAPIKey, lobfileAPIKey string) *MultiHostUploader {
 	if log == nil {
 		log = &nilLogger{}
 	}
@@ -413,6 +424,7 @@ func NewMultiHostUploader(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEm
 		vidhide:       NewVidHideUploader(vidHideAPIKeys),
 		streamwish:    NewStreamWishUploader(streamWishAPIKeys),
 		upnshare:      NewUPnShareUploader(upnshareKeys),
+		pixeldrain:    NewPixelDrainUploader(pixeldrainAPIKey),
 		log:           log,
 	}
 }
@@ -588,6 +600,10 @@ func (m *MultiHostUploader) UploadSelected(filePath string, hosts []string) []Up
 				result.PosterURL = m.seekstreaming.LastPosterURL()
 				result.PreviewURL = m.seekstreaming.LastPreviewURL()
 			}
+			if err == nil && host == "UPnShare" && m.upnshare != nil {
+				result.PosterURL = m.upnshare.LastPosterURL()
+				result.PreviewURL = m.upnshare.LastPreviewURL()
+			}
 			mu.Lock()
 			results = append(results, result)
 			mu.Unlock()
@@ -629,7 +645,16 @@ func (m *MultiHostUploader) UploadSelectedPriority(filePath string, hosts []stri
 		}
 		m.log.Info("upload: priority upload to %s for %s", host, filePath)
 		link, err := fn(filePath, progressFn)
-		results = append(results, UploadResult{Host: host, DownloadLink: link, Error: err})
+		result := UploadResult{Host: host, DownloadLink: link, Error: err}
+		if err == nil && host == "SeekStreaming" && m.seekstreaming != nil {
+			result.PosterURL = m.seekstreaming.LastPosterURL()
+			result.PreviewURL = m.seekstreaming.LastPreviewURL()
+		}
+		if err == nil && host == "UPnShare" && m.upnshare != nil {
+			result.PosterURL = m.upnshare.LastPosterURL()
+			result.PreviewURL = m.upnshare.LastPreviewURL()
+		}
+		results = append(results, result)
 		if err != nil {
 			m.log.Error("upload: %s (priority) failed for %s: %v", host, filePath, err)
 		} else {
