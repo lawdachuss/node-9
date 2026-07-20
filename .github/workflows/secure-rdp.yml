@@ -450,6 +450,8 @@ jobs:
         env:
           CHANNEL_POOL_MODE: ${{ secrets.CHANNEL_POOL_MODE }}
           NODE_ID: ${{ secrets.NODE_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_API_KEY: ${{ secrets.SUPABASE_API_KEY }}
         run: |
           $repoDir = "D:\repos\node-3"; $dvrExe = "$repoDir\chaturbate-dvr.exe"; $videosDir = "D:\videos"
           $dvrLog = "$repoDir\dvr-output.log"; $tunnelUrlFile = "$repoDir\tunnel-url.txt"; $uploadFlag = "$repoDir\upload-complete.flag"
@@ -527,13 +529,36 @@ jobs:
           function Update-NodeWebUrl {
             param($nodeId, $url)
             if ([string]::IsNullOrWhiteSpace($nodeId)) { Write-Warning "[WARN] nodeId is empty - skipping web_url update"; return }
-            $sb = Get-Content "$repoDir\.env" -Raw -ErrorAction SilentlyContinue
-            if (-not $sb) { Write-Warning "[WARN] .env not found - cannot update web_url"; return }
-            if ($sb -match 'SUPABASE_URL=(.+)') { $sbUrl = $matches[1] } else { Write-Warning "[WARN] SUPABASE_URL not in .env"; return }
-            if ($sb -match 'SUPABASE_API_KEY=(.+)') { $sbKey = $matches[1] } else { Write-Warning "[WARN] SUPABASE_API_KEY not in .env"; return }
+            # Resolve Supabase credentials. Prefer the runner env (GitHub secrets),
+            # then fall back to the .env file written earlier in the pipeline.
+            $sbUrl = if (-not [string]::IsNullOrWhiteSpace($env:SUPABASE_URL)) { $env:SUPABASE_URL.Trim() } else { $null }
+            $sbKey = if (-not [string]::IsNullOrWhiteSpace($env:SUPABASE_API_KEY)) { $env:SUPABASE_API_KEY.Trim() } else { $null }
+            if (-not $sbUrl -or -not $sbKey) {
+              $sb = Get-Content "$repoDir\.env" -Raw -ErrorAction SilentlyContinue
+              if ($sb) {
+                if (-not $sbUrl -and ($sb -match '(?m)^SUPABASE_URL=(.+)$')) { $sbUrl = $matches[1].Trim() }
+                if (-not $sbKey -and ($sb -match '(?m)^SUPABASE_API_KEY=(.+)$')) { $sbKey = $matches[1].Trim() }
+              }
+            }
+            if ([string]::IsNullOrWhiteSpace($sbUrl)) { Write-Warning "[WARN] SUPABASE_URL missing (no secret, no .env) - cannot update web_url"; return }
+            if ([string]::IsNullOrWhiteSpace($sbKey)) { Write-Warning "[WARN] SUPABASE_API_KEY missing (no secret, no .env) - cannot update web_url"; return }
             $body = @{ web_url = $url } | ConvertTo-Json -Compress
             $apiUrl = "$sbUrl/rest/v1/nodes?node_id=eq.$([uri]::EscapeDataString($nodeId))"
-            try { Invoke-RestMethod -Uri $apiUrl -Method Patch -Body $body -ContentType "application/json" -Headers @{ "apikey" = $sbKey; "Authorization" = "Bearer $sbKey" } -TimeoutSec 10 -ErrorAction Stop | Out-Null; Write-Host "[OK] Updated node $nodeId web_url in Supabase" } catch { Write-Warning "[WARN] Failed to update web_url: $_" }
+            # Force TLS 1.2 (the default protocol on the runner causes
+            # "The underlying connection was closed" against Supabase).
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            $ok = $false
+            for ($attempt = 1; $attempt -le 4; $attempt++) {
+              try {
+                Invoke-RestMethod -Uri $apiUrl -Method Patch -Body $body -ContentType "application/json" -Headers @{ "apikey" = $sbKey; "Authorization" = "Bearer $sbKey" } -TimeoutSec 25 -ErrorAction Stop | Out-Null
+                Write-Host "[OK] Updated node $nodeId web_url in Supabase (attempt $attempt)"
+                $ok = $true; break
+              } catch {
+                Write-Warning "[WARN] web_url update attempt $attempt failed: $_"
+                if ($attempt -lt 4) { Start-Sleep -Seconds 3 }
+              }
+            }
+            if (-not $ok) { Write-Warning "[WARN] Failed to update web_url after 4 attempts" }
           }
           $myNodeId = Get-NodeId
           Write-Host "[OK] Node ID: $myNodeId"
